@@ -3,14 +3,14 @@ import json
 import time
 import uuid
 from http import HTTPStatus
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 import aiohttp
 from aiohttp import web
 
 from ..config import ArgoConfig
 from ..models import ModelRegistry
-from ..tool_calls.output_handle import tool_calls_to_openai
+from ..tool_calls.output_handle import ToolInterceptor, tool_calls_to_openai
 from ..types import (
     Response,
     ResponseCompletedEvent,
@@ -25,14 +25,19 @@ from ..types import (
     ResponseTextDeltaEvent,
     ResponseTextDoneEvent,
 )
+from ..types.responses import (
+    ResponseFunctionCallArgumentsDeltaEvent,
+    ResponseFunctionCallArgumentsDoneEvent,
+)
 from ..utils.logging import (
     log_converted_request,
     log_error,
     log_original_request,
     log_upstream_error,
+    log_upstream_response,
 )
 from ..utils.misc import apply_username_passthrough
-from ..utils.models import apply_claude_max_tokens_limit
+from ..utils.models import apply_claude_max_tokens_limit, determine_model_family
 from ..utils.tokens import (
     calculate_prompt_tokens_async,
     count_tokens,
@@ -49,14 +54,11 @@ from .chat import (
 INCOMPATIBLE_INPUT_FIELDS = {
     "include",
     "metadata",
-    "parallel_tool_calls",
     "previous_response_id",
     "reasoning",
     "service_tier",
     "store",
     "text",
-    "tool_choice",
-    "tools",
     "truncation",
 }
 
@@ -255,36 +257,132 @@ def transform_streaming_response(
 
 
 def _convert_responses_messages(
+    items: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Convert Responses API input items to Chat Completions messages format.
+
+    Handles:
+    - ``type: "message"`` → standard CC message (strip type, map roles, convert content blocks)
+    - ``type: "function_call"`` → merged into preceding assistant message as ``tool_calls``
+    - ``type: "function_call_output"`` → ``role: "tool"`` message
+    """
+    converted: List[Dict[str, Any]] = []
+
+    for item in items:
+        item_type = item.get("type")
+
+        if item_type == "message":
+            converted.append(_convert_message_item(item))
+
+        elif item_type == "function_call":
+            # Build a Chat Completions tool_call entry
+            tool_call = {
+                "id": item.get("call_id", ""),
+                "type": "function",
+                "function": {
+                    "name": item.get("name", ""),
+                    "arguments": item.get("arguments", "{}"),
+                },
+            }
+            # Merge into the preceding assistant message if possible
+            if converted and converted[-1].get("role") == "assistant":
+                converted[-1].setdefault("tool_calls", []).append(tool_call)
+            else:
+                # No preceding assistant message — create one
+                converted.append({
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [tool_call],
+                })
+
+        elif item_type == "function_call_output":
+            converted.append({
+                "role": "tool",
+                "tool_call_id": item.get("call_id", ""),
+                "content": item.get("output", ""),
+            })
+
+        else:
+            # Fallback: strip type and pass through
+            out = {k: v for k, v in item.items() if k != "type"}
+            if isinstance(out.get("content"), list):
+                out["content"] = [
+                    _convert_content_block(block) for block in out["content"]
+                ]
+            converted.append(out)
+
+    # Reorder: ensure every tool message sits immediately after the
+    # assistant message whose tool_calls it answers.  The Chat Completions
+    # API requires this adjacency.
+    return _reorder_tool_messages(converted)
+
+
+def _reorder_tool_messages(
     messages: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """Convert Responses API messages to Chat Completions format.
+    """Reorder messages so tool responses sit right after their assistant.
 
-    Handles the following differences:
-    - Strips ``type: "message"`` from message objects
-    - Converts ``type: "input_text"`` content blocks to ``type: "text"``
-    - Converts ``role: "developer"`` to ``role: "system"``
+    The Chat Completions API requires that every ``role: "tool"`` message
+    immediately follows the assistant message whose ``tool_calls`` it
+    answers.  After the Responses→CC conversion the ordering may be
+    different (e.g. Codex may interleave ``function_call_output`` items
+    with other items).
+
+    Algorithm:
+    1. Pull all tool messages out into a dict keyed by ``tool_call_id``.
+    2. Walk the non-tool messages.  After each assistant message that has
+       ``tool_calls``, insert the matching tool messages in order.
+    3. Fail fast if any tool messages remain unmatched. Forwarding them would
+       still violate the strict Chat Completions ordering contract.
     """
-    converted = []
+    # Separate tool messages from everything else
+    tool_msgs: Dict[str, Dict[str, Any]] = {}  # tool_call_id → message
+    other_msgs: List[Dict[str, Any]] = []
+
     for msg in messages:
-        out = {}
-        for k, v in msg.items():
-            if k == "type":
-                # Strip the Responses API "type" field from messages
-                continue
-            out[k] = v
+        if msg.get("role") == "tool" and "tool_call_id" in msg:
+            tool_msgs[msg["tool_call_id"]] = msg
+        else:
+            other_msgs.append(msg)
 
-        # developer -> system
-        if out.get("role") == "developer":
-            out["role"] = "system"
+    # Rebuild with tool messages placed after their assistant
+    reordered: List[Dict[str, Any]] = []
+    used_tool_ids: set = set()
 
-        # Convert content blocks
-        if isinstance(out.get("content"), list):
-            out["content"] = [
-                _convert_content_block(block) for block in out["content"]
-            ]
+    for msg in other_msgs:
+        reordered.append(msg)
+        if msg.get("role") == "assistant" and "tool_calls" in msg:
+            for tc in msg["tool_calls"]:
+                tc_id = tc.get("id", "")
+                if tc_id in tool_msgs:
+                    reordered.append(tool_msgs[tc_id])
+                    used_tool_ids.add(tc_id)
 
-        converted.append(out)
-    return converted
+    unmatched_tool_ids = [tc_id for tc_id in tool_msgs if tc_id not in used_tool_ids]
+    if unmatched_tool_ids:
+        raise ValueError(
+            "Unmatched tool messages for tool_call_id(s): "
+            f"{', '.join(unmatched_tool_ids)}"
+        )
+
+    return reordered
+
+
+def _convert_message_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a single Responses API message item to Chat Completions format."""
+    out = {k: v for k, v in item.items() if k != "type"}
+
+    # developer -> system
+    if out.get("role") == "developer":
+        out["role"] = "system"
+
+    # Convert content blocks
+    if isinstance(out.get("content"), list):
+        out["content"] = [
+            _convert_content_block(block) for block in out["content"]
+        ]
+
+    return out
 
 
 def _convert_content_block(block: Dict[str, Any]) -> Dict[str, Any]:
@@ -337,8 +435,31 @@ def prepare_request_data(
         data["max_tokens"] = max_tokens
         del data["max_output_tokens"]
 
+    # Convert Responses API tools format to Chat Completions format
+    # Responses API: {type: "function", name, description, parameters}
+    # Chat Completions: {type: "function", function: {name, description, parameters}}
+    if "tools" in data and isinstance(data["tools"], list):
+        cc_tools = []
+        for tool in data["tools"]:
+            if tool.get("type") == "function" and "function" not in tool:
+                # Responses API format → Chat Completions format
+                cc_tools.append({
+                    "type": "function",
+                    "function": {
+                        k: v for k, v in tool.items() if k != "type"
+                    },
+                })
+            elif tool.get("type") == "function" and "function" in tool:
+                # Already in Chat Completions format
+                cc_tools.append(tool)
+            # Skip non-function tools (web_search_preview, computer_use_preview, etc.)
+            # as the upstream Chat Completions API doesn't support them
+        data["tools"] = cc_tools if cc_tools else None
+        if not data["tools"]:
+            del data["tools"]
+
     # Use shared chat request preparation logic
-    data = prepare_chat_request_data(data, config, model_registry)
+    data = prepare_chat_request_data(data, config, model_registry, enable_tools=True)
 
     # Drop unsupported fields
     for key in list(data.keys()):
@@ -346,104 +467,6 @@ def prepare_request_data(
             del data[key]
 
     return data
-
-
-async def _handle_pseudo_stream_events(
-    response: web.StreamResponse,
-    response_data: Dict[str, Any],
-    output_msg: ResponseOutputMessage,
-    content_part: ResponseContentPartAddedEvent,
-    output_item: ResponseOutputItemAddedEvent,
-    sequence_number: int,
-) -> Tuple[int, str]:
-    """
-    Handles fake streaming events by simulating chunked responses.
-
-    Args:
-        response: The web.StreamResponse object for sending SSE events.
-        response_data: The JSON payload of the upstream response.
-        output_msg: The ResponseOutputMessage object for the current output.
-        content_part: The ResponseContentPartAddedEvent object for the content part.
-        output_item: The ResponseOutputItemAddedEvent object for the output item.
-        sequence_number: The current sequence number for the streaming events.
-
-    Returns:
-        A tuple containing the updated sequence number and the cumulated response text.
-    """
-    response_text = response_data.get("response", "")
-    cumulated_response = response_text
-    chunk_size = 20
-    for i in range(0, len(response_text), chunk_size):
-        sequence_number += 1
-        chunk_text = response_text[i : i + chunk_size]
-        text_delta = transform_streaming_response(
-            json.dumps({"response": chunk_text}),
-            content_index=content_part.content_index,
-            output_index=output_item.output_index,
-            sequence_number=sequence_number,
-            id=output_msg.id,
-        )
-        await send_off_sse(response, text_delta)
-        await asyncio.sleep(0.02)
-    return sequence_number, cumulated_response
-
-
-async def _handle_real_stream_events(
-    response: web.StreamResponse,
-    upstream_resp: aiohttp.ClientResponse,
-    output_msg: ResponseOutputMessage,
-    content_part: ResponseContentPartAddedEvent,
-    output_item: ResponseOutputItemAddedEvent,
-    sequence_number: int,
-) -> Tuple[int, str]:
-    """
-    Handles real streaming events by processing chunks from the upstream response.
-
-    Args:
-        response: The web.StreamResponse object for sending SSE events.
-        upstream_resp: The upstream aiohttp.ClientResponse object.
-        output_msg: The ResponseOutputMessage object for the current output.
-        content_part: The ResponseContentPartAddedEvent object for the content part.
-        output_item: The ResponseOutputItemAddedEvent object for the output item.
-        sequence_number: The current sequence number for the streaming events.
-
-    Returns:
-        A tuple containing the updated sequence number and the cumulated response text.
-    """
-    cumulated_response = ""
-    # Use StreamDecoder for safe UTF-8 decoding
-    decoder = StreamDecoder()
-
-    async for chunk in upstream_resp.content.iter_any():
-        chunk_text, _ = decoder.decode(chunk)
-        if not chunk_text:
-            continue
-        sequence_number += 1
-        cumulated_response += chunk_text
-        text_delta = transform_streaming_response(
-            json.dumps({"response": chunk_text}),
-            content_index=content_part.content_index,
-            output_index=output_item.output_index,
-            sequence_number=sequence_number,
-            id=output_msg.id,
-        )
-        await send_off_sse(response, text_delta)
-
-    # Handle any remaining pending bytes at the end of stream
-    remaining = decoder.flush()
-    if remaining:
-        sequence_number += 1
-        cumulated_response += remaining
-        text_delta = transform_streaming_response(
-            json.dumps({"response": remaining}),
-            content_index=content_part.content_index,
-            output_index=output_item.output_index,
-            sequence_number=sequence_number,
-            id=output_msg.id,
-        )
-        await send_off_sse(response, text_delta)
-
-    return sequence_number, cumulated_response
 
 
 async def send_streaming_request(
@@ -544,100 +567,222 @@ async def send_streaming_request(
         await send_off_sse(response, in_progress_event.model_dump())
 
         # =======================================
-        # ResponseOutputItemAddedEvent, add the output item
-        sequence_number += 1
-        output_msg = ResponseOutputMessage(
-            id=f"msg_{id}",
-            content=[],
-            status="in_progress",
-        )
-        output_item = ResponseOutputItemAddedEvent(
-            item=output_msg,
-            output_index=0,
-            sequence_number=sequence_number,
-        )
-        await send_off_sse(response, output_item.model_dump())
-
-        # =======================================
-        # ResponseContentPartAddedEvent, add the content part
-        sequence_number += 1
-        content_index = 0
-        content_part = ResponseContentPartAddedEvent(
-            content_index=content_index,
-            item_id=output_msg.id,
-            output_index=output_item.output_index,
-            part=ResponseOutputText(text=""),
-            sequence_number=sequence_number,
-        )
-        await send_off_sse(response, content_part.model_dump())
-
-        # =======================================
-        # ResponseTextDeltaEvent, stream the response chunk by chunk
+        # Collect upstream response for pseudo_stream so we can inspect tool calls
+        # before deciding which output items to emit.
         cumulated_response = ""
+        response_tool_calls = None
         if pseudo_stream:
             response_data = await upstream_resp.json()
-            sequence_number, cumulated_response = await _handle_pseudo_stream_events(
-                response,
-                response_data,
-                output_msg,
-                content_part,
-                output_item,
-                sequence_number,
-            )
+            raw_response = response_data.get("response", "")
+
+            # Run ToolInterceptor to extract tool calls
+            if data.get("tools"):
+                cs = ToolInterceptor()
+                model_family = determine_model_family(data.get("model", ""))
+                tool_calls_raw, cleaned_text = cs.process(
+                    raw_response, model_family, request_data=data
+                )
+                cumulated_response = cleaned_text or ""
+                if tool_calls_raw:
+                    response_tool_calls = tool_calls_to_openai(
+                        tool_calls_raw, api_format="response"
+                    )
+            else:
+                cumulated_response = raw_response if isinstance(raw_response, str) else str(raw_response or "")
         else:
-            sequence_number, cumulated_response = await _handle_real_stream_events(
-                response,
-                upstream_resp,
-                output_msg,
-                content_part,
-                output_item,
-                sequence_number,
+            # Real streaming — no tool interception (no pseudo_stream override)
+            cumulated_response = ""
+
+        # Log upstream response
+        log_upstream_response(
+            cumulated_response,
+            endpoint="response",
+            is_streaming=not pseudo_stream,
+        )
+
+        # =======================================
+        output_index = 0
+        output_msg = None
+
+        if pseudo_stream:
+            has_text = bool(cumulated_response.strip())
+        else:
+            # For real streaming we must open the output item before consuming
+            # the upstream body because content is discovered incrementally.
+            has_text = True
+
+        if has_text:
+            # ResponseOutputItemAddedEvent, add the text message item
+            sequence_number += 1
+            output_msg = ResponseOutputMessage(
+                id=f"msg_{id}",
+                content=[],
+                status="in_progress",
             )
+            output_item_event = ResponseOutputItemAddedEvent(
+                item=output_msg,
+                output_index=output_index,
+                sequence_number=sequence_number,
+            )
+            await send_off_sse(response, output_item_event.model_dump())
+
+            # ResponseContentPartAddedEvent
+            sequence_number += 1
+            content_part = ResponseContentPartAddedEvent(
+                content_index=0,
+                item_id=output_msg.id,
+                output_index=output_index,
+                part=ResponseOutputText(text=""),
+                sequence_number=sequence_number,
+            )
+            await send_off_sse(response, content_part.model_dump())
+
+            # Stream text chunks
+            if pseudo_stream:
+                chunk_size = 20
+                for i in range(0, len(cumulated_response), chunk_size):
+                    sequence_number += 1
+                    chunk_text = cumulated_response[i : i + chunk_size]
+                    text_delta = transform_streaming_response(
+                        json.dumps({"response": chunk_text}),
+                        content_index=0,
+                        output_index=output_index,
+                        sequence_number=sequence_number,
+                        id=output_msg.id,
+                    )
+                    await send_off_sse(response, text_delta)
+                    await asyncio.sleep(0.02)
+            else:
+                # Real streaming path
+                decoder = StreamDecoder()
+                async for chunk in upstream_resp.content.iter_any():
+                    chunk_text, _ = decoder.decode(chunk)
+                    if not chunk_text:
+                        continue
+                    sequence_number += 1
+                    cumulated_response += chunk_text
+                    text_delta = transform_streaming_response(
+                        json.dumps({"response": chunk_text}),
+                        content_index=0,
+                        output_index=output_index,
+                        sequence_number=sequence_number,
+                        id=output_msg.id,
+                    )
+                    await send_off_sse(response, text_delta)
+                remaining = decoder.flush()
+                if remaining:
+                    sequence_number += 1
+                    cumulated_response += remaining
+                    text_delta = transform_streaming_response(
+                        json.dumps({"response": remaining}),
+                        content_index=0,
+                        output_index=output_index,
+                        sequence_number=sequence_number,
+                        id=output_msg.id,
+                    )
+                    await send_off_sse(response, text_delta)
+
+            # ResponseTextDoneEvent
+            sequence_number += 1
+            text_done = ResponseTextDoneEvent(
+                content_index=0,
+                item_id=output_msg.id,
+                output_index=output_index,
+                sequence_number=sequence_number,
+                text=cumulated_response,
+            )
+            await send_off_sse(response, text_done.model_dump())
+
+            # ResponseContentPartDoneEvent
+            sequence_number += 1
+            output_text = ResponseOutputText(text=cumulated_response)
+            content_part_done = ResponseContentPartDoneEvent(
+                content_index=0,
+                item_id=output_msg.id,
+                output_index=output_index,
+                part=output_text,
+                sequence_number=sequence_number,
+            )
+            await send_off_sse(response, content_part_done.model_dump())
+
+            # ResponseOutputItemDoneEvent
+            sequence_number += 1
+            output_msg.content = [output_text]
+            output_msg.status = "completed"
+            output_item_done = ResponseOutputItemDoneEvent(
+                item=output_msg,
+                output_index=output_index,
+                sequence_number=sequence_number,
+            )
+            await send_off_sse(response, output_item_done.model_dump())
+
+            if output_msg.content:
+                onset_response.output.append(output_msg)
+                output_index += 1
 
         # =======================================
-        # ResponseTextDoneEvent, signal the end of the text stream
-        sequence_number += 1
-        text_done = ResponseTextDoneEvent(
-            content_index=content_part.content_index,
-            item_id=output_msg.id,
-            output_index=output_item.output_index,
-            sequence_number=sequence_number,
-            text=cumulated_response,  # Use the cumulated response tex
-        )
-        await send_off_sse(response, text_done.model_dump())
+        # Emit function_call output items with proper argument streaming events
+        if response_tool_calls:
+            for tc in response_tool_calls:
+                # output_item.added (with in_progress status)
+                sequence_number += 1
+                tc.status = "in_progress"
+                tc_added = ResponseOutputItemAddedEvent(
+                    item=tc,
+                    output_index=output_index,
+                    sequence_number=sequence_number,
+                )
+                await send_off_sse(response, tc_added.model_dump())
 
-        # =======================================
-        # ResponseContentPartDoneEvent, signal the end of the content part
-        sequence_number += 1
-        output_text = ResponseOutputText(text=cumulated_response)
-        content_part_done = ResponseContentPartDoneEvent(
-            content_index=content_part.content_index,
-            item_id=output_msg.id,
-            output_index=output_item.output_index,
-            part=output_text,
-            sequence_number=sequence_number,
-        )
-        await send_off_sse(response, content_part_done.model_dump())
+                # function_call_arguments.delta (full arguments in one delta)
+                sequence_number += 1
+                args_delta = ResponseFunctionCallArgumentsDeltaEvent(
+                    delta=tc.arguments,
+                    item_id=tc.id,
+                    output_index=output_index,
+                    sequence_number=sequence_number,
+                )
+                await send_off_sse(response, args_delta.model_dump())
 
-        # =======================================
-        # ResponseOutputItemDoneEvent, signal the end of the output item
-        sequence_number += 1
-        output_msg.content = [output_text]
-        output_msg.status = "completed"
+                # function_call_arguments.done
+                sequence_number += 1
+                args_done = ResponseFunctionCallArgumentsDoneEvent(
+                    arguments=tc.arguments,
+                    item_id=tc.id,
+                    output_index=output_index,
+                    sequence_number=sequence_number,
+                )
+                await send_off_sse(response, args_done.model_dump())
 
-        output_item_done = ResponseOutputItemDoneEvent(
-            item=output_msg,
-            output_index=output_item.output_index,
-            sequence_number=sequence_number,
-        )
-        await send_off_sse(response, output_item_done.model_dump())
+                # output_item.done (with completed status)
+                sequence_number += 1
+                tc.status = "completed"
+                tc_done = ResponseOutputItemDoneEvent(
+                    item=tc,
+                    output_index=output_index,
+                    sequence_number=sequence_number,
+                )
+                await send_off_sse(response, tc_done.model_dump())
+
+                onset_response.output.append(tc)
+                output_index += 1
 
         # =======================================
         # ResponseCompletedEvent, signal the end of the response
         sequence_number += 1
-        onset_response.output.append(output_msg)
         onset_response.status = "completed"
-        output_tokens = await count_tokens_async(cumulated_response, data["model"])
+        # Convert Pydantic tool call objects to dicts for token counting
+        serializable_tcs = (
+            [tc.model_dump() for tc in response_tool_calls]
+            if response_tool_calls
+            else None
+        )
+        output_tokens = await calculate_completion_tokens_async(
+            cumulated_response,
+            serializable_tcs,
+            data["model"],
+            api_format="response",
+        )
         onset_response.usage = create_usage(
             prompt_tokens, output_tokens, api_type="response"
         )
@@ -675,6 +820,9 @@ async def proxy_request(
 
         data = await request.json()
         stream = data.get("stream", False)
+        # Force pseudo_stream when tools are present so we can
+        # collect the full response and run ToolInterceptor on it
+        pseudo_stream_override = "tools" in data
 
         if not data:
             raise ValueError("Invalid input. Expected JSON data.")
@@ -689,7 +837,7 @@ async def proxy_request(
         apply_username_passthrough(data, request, config.user)
 
         # Determine actual streaming mode for upstream request
-        use_pseudo_stream = config.pseudo_stream
+        use_pseudo_stream = config.pseudo_stream or pseudo_stream_override
         if stream and use_pseudo_stream:
             # When using pseudo_stream, upstream request is non-streaming
             data["stream"] = False

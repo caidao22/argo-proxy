@@ -326,7 +326,7 @@ class ToolInterceptor:
         Returns:
             Tuple of (list of ToolCall objects or None, text content)
         """
-        content = response_data.get("content", "")
+        content = response_data.get("content") or ""
         tool_calls_data = response_data.get("tool_calls", [])
 
         # Convert tool calls to ToolCall objects
@@ -489,7 +489,7 @@ class ToolInterceptor:
         Returns:
             Tuple of (list of ToolCall objects or None, text content)
         """
-        content = response_data.get("content", "")
+        content = response_data.get("content") or ""
         tool_calls_data = response_data.get("tool_calls", [])
 
         log_warning(

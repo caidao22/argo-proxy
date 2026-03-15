@@ -376,6 +376,44 @@ class ResponseTextDoneEvent(BaseModel):
     """The type of the event. Always `response.output_text.done`."""
 
 
+class ResponseFunctionCallArgumentsDeltaEvent(BaseModel):
+    delta: str
+    """A chunk of serialized function call arguments."""
+
+    item_id: str
+    """The ID of the function_call item receiving the arguments."""
+
+    output_index: int
+    """The index of the function_call output item."""
+
+    sequence_number: int
+    """The sequence number for this event."""
+
+    type: Literal["response.function_call_arguments.delta"] = (
+        "response.function_call_arguments.delta"
+    )
+    """The type of the event. Always `response.function_call_arguments.delta`."""
+
+
+class ResponseFunctionCallArgumentsDoneEvent(BaseModel):
+    arguments: str
+    """The complete serialized function call arguments."""
+
+    item_id: str
+    """The ID of the function_call item receiving the arguments."""
+
+    output_index: int
+    """The index of the function_call output item."""
+
+    sequence_number: int
+    """The sequence number for this event."""
+
+    type: Literal["response.function_call_arguments.done"] = (
+        "response.function_call_arguments.done"
+    )
+    """The type of the event. Always `response.function_call_arguments.done`."""
+
+
 class ResponseCompletedEvent(BaseModel):
     response: Response
     """Properties of the completed response."""
