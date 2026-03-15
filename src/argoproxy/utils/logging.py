@@ -514,6 +514,30 @@ def log_request_diff(
         _logger.info(f"[CHANGES] {', '.join(diffs)}")
 
 
+def log_upstream_response(
+    content: str,
+    *,
+    endpoint: str = "unknown",
+    is_streaming: bool = False,
+) -> None:
+    """
+    Log upstream API response content at INFO level.
+
+    Args:
+        content: The response content/text from upstream.
+        endpoint: The endpoint name (e.g., "chat", "response").
+        is_streaming: Whether this was a streaming request.
+    """
+    request_type = "streaming" if is_streaming else "non-streaming"
+    _logger.info(
+        f"[UPSTREAM RESPONSE] endpoint={endpoint}, type={request_type}, "
+        f"length={len(content)}"
+    )
+    _logger.info(_make_bar("[UPSTREAM RESPONSE]"))
+    _logger.info(content)
+    _logger.info(_make_bar())
+
+
 def log_upstream_error(
     status_code: int,
     error_text: str,

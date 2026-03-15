@@ -37,6 +37,7 @@ from ..utils.logging import (
     log_error,
     log_original_request,
     log_upstream_error,
+    log_upstream_response,
     log_warning,
 )
 from ..utils.misc import apply_username_passthrough
@@ -320,6 +321,13 @@ async def send_non_streaming_request(
                     },
                     status=502,
                 )
+
+            # Log upstream response
+            log_upstream_response(
+                str(response_content),
+                endpoint="chat",
+                is_streaming=False,
+            )
 
             if not convert_to_openai:  # direct pass-through
                 return web.json_response(
