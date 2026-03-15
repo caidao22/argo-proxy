@@ -452,8 +452,29 @@ def prepare_request_data(
             elif tool.get("type") == "function" and "function" in tool:
                 # Already in Chat Completions format
                 cc_tools.append(tool)
-            # Skip non-function tools (web_search_preview, computer_use_preview, etc.)
-            # as the upstream Chat Completions API doesn't support them
+            elif tool.get("type") == "custom":
+                # Custom tools (e.g. Codex apply_patch) → Chat Completions function
+                # Custom tools use "schema" for input; map to "parameters"
+                func_def = {"name": tool.get("name", "")}
+                if "description" in tool:
+                    func_def["description"] = tool["description"]
+                func_def["parameters"] = tool.get("schema", {
+                    "type": "object",
+                    "properties": {
+                        "input": {"type": "string", "description": "The tool input"},
+                    },
+                    "required": ["input"],
+                })
+                cc_tools.append({"type": "function", "function": func_def})
+            else:
+                # Warn about unhandled tool types before skipping
+                tool_type = tool.get("type", "unknown")
+                tool_name = tool.get("name", "unnamed")
+                log_error(
+                    f"Skipping unsupported tool type='{tool_type}' name='{tool_name}'. "
+                    "Only 'function' and 'custom' tools are forwarded upstream.",
+                    context="responses.prepare",
+                )
         data["tools"] = cc_tools if cc_tools else None
         if not data["tools"]:
             del data["tools"]
