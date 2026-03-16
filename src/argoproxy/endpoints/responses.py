@@ -479,6 +479,11 @@ def prepare_request_data(
         if not data["tools"]:
             del data["tools"]
 
+    # Remove orphaned tool_choice/parallel_tool_calls when no tools are present
+    if "tools" not in data:
+        data.pop("tool_choice", None)
+        data.pop("parallel_tool_calls", None)
+
     # Use shared chat request preparation logic
     data = prepare_chat_request_data(data, config, model_registry, enable_tools=True)
 
