@@ -1,7 +1,7 @@
 # argo-proxy
 
-[![PyPI version](https://badge.fury.io/py/argo-proxy.svg?icon=si%3Apython)](https://badge.fury.io/py/argo-proxy)
-[![GitHub version](https://badge.fury.io/gh/oaklight%2Fargo-proxy.svg?icon=si%3Agithub)](https://badge.fury.io/gh/oaklight%2Fargo-proxy)
+[![PyPI version](https://img.shields.io/pypi/v/argo-proxy?color=green)](https://pypi.org/project/argo-proxy/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 This project is a proxy application that forwards requests to an ARGO API and optionally converts the responses to be compatible with OpenAI's API format. It can be used in conjunction with [autossh-tunnel-dockerized](https://github.com/Oaklight/autossh-tunnel-dockerized) or other secure connection tools.
 
