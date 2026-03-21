@@ -78,7 +78,7 @@ setup_logging()
 # ---------------------------------------------------------------------------
 
 # Known subcommands — used for default-subcommand detection
-_SUBCOMMANDS = {"serve", "config", "logs", "update"}
+_SUBCOMMANDS = {"serve", "config", "logs", "update", "models"}
 
 
 def _add_serve_arguments(parser: argparse.ArgumentParser) -> None:
@@ -228,6 +228,23 @@ def _add_update_subparsers(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_models_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add arguments for the ``models`` subcommand."""
+    parser.add_argument(
+        "config",
+        type=str,
+        nargs="?",
+        help="Path to the configuration file",
+        default=None,
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        default=False,
+        help="Output in JSON format",
+    )
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Build the top-level argument parser with subcommands."""
     parser = argparse.ArgumentParser(
@@ -276,6 +293,14 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=RawTextHelpFormatter,
     )
     _add_update_subparsers(update_parser)
+
+    # models
+    models_parser = subparsers.add_parser(
+        "models",
+        help="List available upstream models and their aliases",
+        formatter_class=RawTextHelpFormatter,
+    )
+    _add_models_arguments(models_parser)
 
     return parser
 
@@ -864,6 +889,141 @@ def _update_install(pre: bool = False):
 
 
 # ---------------------------------------------------------------------------
+# Models handler
+# ---------------------------------------------------------------------------
+
+
+def _handle_models(args: argparse.Namespace):
+    """Handle the ``models`` subcommand — list available models and aliases."""
+    import json as _json
+    import threading
+    from collections import defaultdict
+
+    from .config import load_config
+    from .models import ModelRegistry
+
+    config_data, _ = load_config(args.config, verbose=False)
+    if not config_data:
+        log_error("No valid configuration found.", context="cli")
+        sys.exit(1)
+
+    registry = ModelRegistry(config=config_data)
+
+    # Fetch with spinner
+    done = threading.Event()
+
+    def _spinner():
+        frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        i = 0
+        while not done.is_set():
+            print(
+                f"\r{frames[i % len(frames)]} Fetching models from upstream...",
+                end="",
+                flush=True,
+            )
+            i += 1
+            done.wait(0.1)
+        print("\r" + " " * 50 + "\r", end="", flush=True)
+
+    spinner_thread = threading.Thread(target=_spinner, daemon=True)
+    spinner_thread.start()
+    asyncio.run(registry.initialize())
+    done.set()
+    spinner_thread.join()
+
+    # Build reverse maps: internal_id → list of aliases (deduplicated)
+    chat_id_to_aliases: dict[str, list[str]] = defaultdict(list)
+    for alias, internal_id in registry.available_chat_models.items():
+        if alias not in chat_id_to_aliases[internal_id]:
+            chat_id_to_aliases[internal_id].append(alias)
+
+    embed_id_to_aliases: dict[str, list[str]] = defaultdict(list)
+    for alias, internal_id in registry.available_embed_models.items():
+        if alias not in embed_id_to_aliases[internal_id]:
+            embed_id_to_aliases[internal_id].append(alias)
+
+    # Sort aliases within each group
+    for aliases in chat_id_to_aliases.values():
+        aliases.sort()
+    for aliases in embed_id_to_aliases.values():
+        aliases.sort()
+
+    if args.json:
+        output = []
+        for internal_id, aliases in sorted(chat_id_to_aliases.items()):
+            family = registry._classify_model_by_family(internal_id)
+            output.append(
+                {
+                    "upstream_id": internal_id,
+                    "type": "chat",
+                    "family": family,
+                    "aliases": aliases,
+                }
+            )
+        for internal_id, aliases in sorted(embed_id_to_aliases.items()):
+            output.append(
+                {
+                    "upstream_id": internal_id,
+                    "type": "embedding",
+                    "family": "openai",
+                    "aliases": aliases,
+                }
+            )
+        print(_json.dumps(output, indent=2))
+        return
+
+    # Table output — organized by type, then by provider
+    stats = registry.get_model_stats()
+    print(
+        f"Available models: {stats['unique_models']} models, "
+        f"{stats['total_aliases']} aliases"
+    )
+
+    # --- Chat Models ---
+    print(
+        f"\n  Chat Models ({stats['unique_chat_models']} models, "
+        f"{stats['chat_aliases']} aliases)"
+    )
+
+    family_order = ["openai", "anthropic", "google", "unknown"]
+    family_labels = {
+        "openai": "OpenAI",
+        "anthropic": "Anthropic",
+        "google": "Google",
+        "unknown": "Other",
+    }
+
+    # Classify chat models by family
+    chat_families: dict[str, list[tuple[str, list[str]]]] = defaultdict(list)
+    for internal_id, aliases in sorted(chat_id_to_aliases.items()):
+        family = registry._classify_model_by_family(internal_id)
+        chat_families[family].append((internal_id, aliases))
+
+    for family in family_order:
+        entries = chat_families.get(family, [])
+        if not entries:
+            continue
+        label = family_labels.get(family, family)
+        print(f"\n    {label} ({len(entries)} models)")
+        for internal_id, aliases in entries:
+            alias_str = ", ".join(aliases)
+            print(f"      {internal_id:<30s} {alias_str}")
+
+    # --- Embedding Models ---
+    if embed_id_to_aliases:
+        embed_count = len(embed_id_to_aliases)
+        embed_alias_count = sum(len(a) for a in embed_id_to_aliases.values())
+        print(
+            f"\n  Embedding Models ({embed_count} models, {embed_alias_count} aliases)"
+        )
+        for internal_id, aliases in sorted(embed_id_to_aliases.items()):
+            alias_str = ", ".join(aliases)
+            print(f"      {internal_id:<30s} {alias_str}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -885,6 +1045,8 @@ def main():
         _handle_logs(args)
     elif args.command == "update":
         _handle_update(args)
+    elif args.command == "models":
+        _handle_models(args)
 
 
 if __name__ == "__main__":
