@@ -188,4 +188,5 @@ cython_debug/
 .cursorindexingignore
 
 config.yaml
+config.test.yaml
 references/
