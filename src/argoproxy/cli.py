@@ -78,7 +78,7 @@ setup_logging()
 # ---------------------------------------------------------------------------
 
 # Known subcommands — used for default-subcommand detection
-_SUBCOMMANDS = {"serve", "config", "logs"}
+_SUBCOMMANDS = {"serve", "config", "logs", "update"}
 
 
 def _add_serve_arguments(parser: argparse.ArgumentParser) -> None:
@@ -124,6 +124,12 @@ def _add_serve_arguments(parser: argparse.ArgumentParser) -> None:
         "-s",
         action="store_true",
         help="Show the current configuration during launch",
+    )
+    parser.add_argument(
+        "--no-banner",
+        action="store_true",
+        default=False,
+        help="Suppress the ASCII banner on startup",
     )
     parser.add_argument(
         "--username-passthrough",
@@ -207,6 +213,21 @@ def _add_logs_subparsers(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_update_subparsers(parser: argparse.ArgumentParser) -> None:
+    """Add sub-subcommands for the ``update`` subcommand."""
+    sub = parser.add_subparsers(dest="update_action", metavar="action")
+
+    sub.add_parser("check", help="Check for available updates (stable and pre-release)")
+
+    install_parser = sub.add_parser("install", help="Install the latest version")
+    install_parser.add_argument(
+        "--pre",
+        action="store_true",
+        default=False,
+        help="Install the latest pre-release version instead of stable",
+    )
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Build the top-level argument parser with subcommands."""
     parser = argparse.ArgumentParser(
@@ -247,6 +268,14 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=RawTextHelpFormatter,
     )
     _add_logs_subparsers(logs_parser)
+
+    # update
+    update_parser = subparsers.add_parser(
+        "update",
+        help="Check for and install updates",
+        formatter_class=RawTextHelpFormatter,
+    )
+    _add_update_subparsers(update_parser)
 
     return parser
 
@@ -317,12 +346,13 @@ def version_check() -> str:
     return "\n".join(ver_content)
 
 
-def display_startup_banner():
+def display_startup_banner(no_banner: bool = False):
     """Display startup banner with version and mode information."""
-    banner = get_ascii_banner()
-    latest = asyncio.run(get_latest_pypi_version())
+    if not no_banner:
+        banner = get_ascii_banner()
+        print(banner)
 
-    print(banner)
+    latest = asyncio.run(get_latest_pypi_version())
 
     log_info("=" * 80, context="cli")
     if latest and version.parse(latest) > version.parse(__version__):
@@ -564,7 +594,7 @@ def _handle_serve(args: argparse.Namespace):
     set_config_envs(args)
 
     try:
-        display_startup_banner()
+        display_startup_banner(no_banner=args.no_banner)
 
         config_instance = validate_config(args.config, args.show)
 
@@ -645,6 +675,175 @@ def _handle_logs(args: argparse.Namespace):
 
 
 # ---------------------------------------------------------------------------
+# Update handler
+# ---------------------------------------------------------------------------
+
+
+def _get_pypi_versions() -> dict[str, Optional[str]]:
+    """Query PyPI for the latest stable and pre-release versions.
+
+    Returns:
+        Dict with keys ``stable`` and ``pre``, values are version strings or None.
+    """
+    import urllib.request
+
+    url = "https://pypi.org/pypi/argo-proxy/json"
+    result: dict[str, Optional[str]] = {"stable": None, "pre": None}
+
+    try:
+        req = urllib.request.Request(
+            url, headers={"Cache-Control": "no-cache", "Pragma": "no-cache"}
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            import json as _json
+
+            data = _json.loads(resp.read())
+    except Exception:
+        return result
+
+    # Latest stable is in info.version
+    result["stable"] = data.get("info", {}).get("version")
+
+    # Find the latest pre-release by scanning all releases
+    all_versions = list(data.get("releases", {}).keys())
+    pre_versions = []
+    for v in all_versions:
+        try:
+            pv = version.parse(v)
+            if pv.is_prerelease or pv.is_devrelease:
+                pre_versions.append(pv)
+        except Exception:
+            continue
+
+    if pre_versions:
+        latest_pre = max(pre_versions)
+        # Only show pre-release if it's newer than stable
+        if result["stable"]:
+            try:
+                if latest_pre > version.parse(result["stable"]):
+                    result["pre"] = str(latest_pre)
+            except Exception:
+                result["pre"] = str(latest_pre)
+        else:
+            result["pre"] = str(latest_pre)
+
+    return result
+
+
+def _detect_pip_command() -> list[str]:
+    """Detect the best pip command for the current environment.
+
+    Returns:
+        Command list, e.g. ``["uv", "pip"]`` or ``["pip"]``.
+    """
+    import shutil
+
+    if shutil.which("uv"):
+        return ["uv", "pip"]
+    if shutil.which("pip"):
+        return ["pip"]
+    # Fallback: use the current interpreter's pip module
+    return [sys.executable, "-m", "pip"]
+
+
+def _handle_update(args: argparse.Namespace):
+    """Handle the ``update`` subcommand."""
+    if not args.update_action:
+        create_parser().parse_args(["update", "--help"])
+        return
+
+    if args.update_action == "check":
+        _update_check()
+    elif args.update_action == "install":
+        _update_install(pre=args.pre)
+
+
+def _update_check():
+    """Check for available updates and display results."""
+    current = __version__
+    versions = _get_pypi_versions()
+
+    print(f"argo-proxy v{current} (installed)")
+    print()
+
+    stable = versions.get("stable")
+    pre = versions.get("pre")
+
+    if stable:
+        try:
+            if version.parse(stable) > version.parse(current):
+                log_info(
+                    f"  Stable:      v{stable}  ← upgrade available", context="cli"
+                )
+            else:
+                log_info(f"  Stable:      v{stable}  (up to date)", context="cli")
+        except Exception:
+            log_info(f"  Stable:      v{stable}", context="cli")
+    else:
+        log_warning("  Stable:      (unable to fetch)", context="cli")
+
+    if pre:
+        log_info(f"  Pre-release: v{pre}", context="cli")
+    else:
+        log_info("  Pre-release: (none available)", context="cli")
+
+    print()
+    pip_cmd = " ".join(_detect_pip_command())
+    if stable and version.parse(stable) > version.parse(current):
+        log_info(
+            f"  Update:       {pip_cmd} install --upgrade argo-proxy", context="cli"
+        )
+    if pre:
+        log_info(
+            f"  Pre-release:  {pip_cmd} install --upgrade --pre argo-proxy",
+            context="cli",
+        )
+    print(f"  Changelog:    {CHANGELOG_URL}")
+
+
+def _update_install(pre: bool = False):
+    """Install the latest version using the detected package manager."""
+    current = __version__
+    versions = _get_pypi_versions()
+
+    target = versions.get("pre") if pre else versions.get("stable")
+    label = "pre-release" if pre else "stable"
+
+    if not target:
+        log_error(f"Unable to fetch {label} version from PyPI.", context="cli")
+        sys.exit(1)
+
+    try:
+        if version.parse(target) <= version.parse(current):
+            log_info(
+                f"Already at v{current}, {label} is v{target}. Nothing to do.",
+                context="cli",
+            )
+            return
+    except Exception:
+        pass
+
+    pip_cmd = _detect_pip_command()
+    cmd = [*pip_cmd, "install", "--upgrade"]
+    if pre:
+        cmd.append("--pre")
+    cmd.append("argo-proxy")
+
+    log_info(f"Upgrading argo-proxy: v{current} → v{target} ({label})", context="cli")
+    log_info(f"Running: {' '.join(cmd)}", context="cli")
+    print()
+
+    result = subprocess.run(cmd)
+    if result.returncode != 0:
+        log_error("Update failed. See output above for details.", context="cli")
+        sys.exit(1)
+
+    log_info(
+        "Update complete. Restart argo-proxy to use the new version.", context="cli"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -664,6 +863,8 @@ def main():
         _handle_config(args)
     elif args.command == "logs":
         _handle_logs(args)
+    elif args.command == "update":
+        _handle_update(args)
 
 
 if __name__ == "__main__":
