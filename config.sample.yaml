@@ -1,5 +1,5 @@
 # Config version (for migration tracking)
-config_version: "2"
+config_version: "3"
 
 host: "0.0.0.0"
 port: 44497
@@ -9,11 +9,19 @@ user: "" # you should replace it with your username
 # This is the recommended way to configure URLs
 argo_base_url: "https://apps-dev.inside.anl.gov/argoapi"
 
-# Individual endpoint URLs (optional - override base URL derived values)
+# Native upstream endpoint URLs (derived from argo_base_url if not set)
+# native_openai_base_url: "https://apps-dev.inside.anl.gov/argoapi/v1/"
+# native_anthropic_base_url: "https://apps-dev.inside.anl.gov/argoapi/v1/messages"
+
+# Legacy ARGO gateway mode (default: false)
+# When enabled, uses the old ARGO gateway endpoints instead of universal dispatch.
+# Only enable this if you need backward compatibility with the legacy pipeline.
+# use_legacy_argo: false
+
+# Legacy ARGO gateway endpoint URLs (only used when use_legacy_argo is true)
 # argo_url: "https://apps-dev.inside.anl.gov/argoapi/api/v1/resource/chat/"
 # argo_stream_url: "https://apps-dev.inside.anl.gov/argoapi/api/v1/resource/streamchat/"
 # argo_embedding_url: "https://apps-dev.inside.anl.gov/argoapi/api/v1/resource/embed/"
-# native_openai_base_url: "https://apps-dev.inside.anl.gov/argoapi/v1/"
 
 verbose: true
 
@@ -34,15 +42,6 @@ verbose: true
 # Example: route apps-dev.inside.anl.gov:443 through localhost SSH tunnel
 # resolve_overrides:
 #   "apps-dev.inside.anl.gov:443": "127.0.0.1"
-
-# Native OpenAI endpoint passthrough mode (default: false)
-# When enabled, requests are directly forwarded to the native OpenAI endpoint without transformation
-# use_native_openai: false
-
-# Native Anthropic endpoint passthrough mode (default: false)
-# Exposes /v1/messages endpoint for Anthropic-compatible clients
-# use_native_anthropic: false
-# native_anthropic_base_url: "https://apps-dev.inside.anl.gov/argoapi/v1/messages"
 
 # Image processing settings
 enable_payload_control: false  # Enable automatic payload size control

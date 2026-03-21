@@ -107,27 +107,27 @@ def parsing_args() -> argparse.Namespace:
         help="Disable verbose logging, override if `verbose` set True in config",
     )
 
-    # Streaming mode group (mutually exclusive)
+    # Streaming mode group (mutually exclusive, legacy mode only)
     stream_group = parser.add_mutually_exclusive_group()
     stream_group.add_argument(
         "--real-stream",
         "-rs",
         action="store_true",
-        default=False,  # Will be handled in logic to default to True when neither option is specified
-        help="Enable real streaming (default behavior), override if `real_stream` set False in config",
+        default=False,
+        help="[Legacy only] Enable real streaming (default behavior)",
     )
     stream_group.add_argument(
         "--pseudo-stream",
         "-ps",
         action="store_true",
         default=False,
-        help="Enable pseudo streaming, override if `real_stream` set True or omitted in config",
+        help="[Legacy only] Enable pseudo streaming",
     )
 
     parser.add_argument(
         "--tool-prompting",
         action="store_true",
-        help="Enable prompting-based tool calls/function calling, otherwise use native tool calls/function calling",
+        help="[Legacy only] Enable prompting-based tool calls instead of native tool calls",
     )
     parser.add_argument(
         "--username-passthrough",
@@ -144,7 +144,7 @@ def parsing_args() -> argparse.Namespace:
         "--enable-leaked-tool-fix",
         action="store_true",
         default=False,
-        help="Enable AST-based leaked tool call detection and fixing (experimental). When disabled, leaked tool calls will be logged for analysis.",
+        help="[Legacy only] Enable AST-based leaked tool call detection and fixing (experimental)",
     )
     parser.add_argument(
         "--dev",
@@ -183,6 +183,11 @@ def parsing_args() -> argparse.Namespace:
         "--collect-leaked-logs",
         action="store_true",
         help="Collect all leaked tool call logs into a tar.gz archive for analysis",
+    )
+    parser.add_argument(
+        "--migrate",
+        action="store_true",
+        help="Migrate configuration file from v1/v2 to v3 format in place (creates a backup)",
     )
 
     args = parser.parse_args()
@@ -281,7 +286,7 @@ def version_check() -> str:
 
 
 def display_startup_banner():
-    """Display startup banner with version information"""
+    """Display startup banner with version and mode information."""
     banner = get_ascii_banner()
     latest = asyncio.run(get_latest_pypi_version())
 
@@ -297,7 +302,100 @@ def display_startup_banner():
         log_info(f"   └─ Changelog: {CHANGELOG_URL}", context="cli")
     else:
         log_warning(f"🚀 ARGO PROXY v{__version__} (Latest)", context="cli")
+
+    # Show running mode
+    from .utils.misc import str_to_bool
+
+    if str_to_bool(os.environ.get("USE_LEGACY_ARGO", "false")):
+        log_warning("⚙️  MODE: Legacy ARGO Gateway", context="cli")
+    else:
+        log_info("⚙️  MODE: Universal (llm-rosetta)", context="cli")
     log_info("=" * 80, context="cli")
+
+
+def migrate_config(config_path: Optional[str] = None):
+    """Migrate configuration file from v1/v2 to v3 format in place.
+
+    Creates a .bak backup before writing changes.
+
+    Args:
+        config_path: Optional explicit path to the config file.
+    """
+    import shutil
+
+    import yaml
+
+    from .config import PATHS_TO_TRY
+
+    # Find the config file
+    paths = [config_path] if config_path else PATHS_TO_TRY
+    found_path = None
+    for p in paths:
+        if p and os.path.exists(p):
+            found_path = p
+            break
+
+    if not found_path:
+        log_error("No configuration file found to migrate.", context="cli")
+        sys.exit(1)
+
+    log_info(f"Migrating config: {found_path}", context="cli")
+
+    with open(found_path, encoding="utf-8") as f:
+        raw = f.read()
+
+    data = yaml.safe_load(raw) or {}
+    current_version = data.get("config_version", "")
+
+    if current_version == "3":
+        log_info("Config is already v3. Nothing to do.", context="cli")
+        return
+
+    # Create backup
+    backup_path = found_path + ".bak"
+    shutil.copy2(found_path, backup_path)
+    log_info(f"Backup saved: {backup_path}", context="cli")
+
+    changes: list[str] = []
+
+    # Update config_version
+    old_ver = current_version or "(none)"
+    data["config_version"] = "3"
+    changes.append(f"config_version: {old_ver} -> 3")
+
+    # Remove deprecated v2 keys
+    deprecated_keys = [
+        "use_native_openai",
+        "use_native_anthropic",
+        "provider_tool_format",
+    ]
+    for key in deprecated_keys:
+        if key in data:
+            data.pop(key)
+            changes.append(f"removed deprecated key: {key}")
+
+    # Derive native URLs from argo_base_url if present but native URLs missing
+    base_url = data.get("argo_base_url", "")
+    if base_url:
+        base = base_url.rstrip("/")
+        if "native_openai_base_url" not in data:
+            data["native_openai_base_url"] = f"{base}/v1/"
+            changes.append(f"added native_openai_base_url: {base}/v1/")
+        if "native_anthropic_base_url" not in data:
+            data["native_anthropic_base_url"] = f"{base}/v1/messages"
+            changes.append(f"added native_anthropic_base_url: {base}/v1/messages")
+
+    # Write back
+    with open(found_path, "w", encoding="utf-8") as f:
+        yaml.dump(
+            data, f, default_flow_style=False, sort_keys=False, allow_unicode=True
+        )
+
+    log_info("=" * 60, context="cli")
+    log_info("Migration complete:", context="cli")
+    for change in changes:
+        log_info(f"  - {change}", context="cli")
+    log_info("=" * 60, context="cli")
 
 
 def collect_leaked_logs(config_path: Optional[str] = None):
@@ -399,6 +497,10 @@ def main():
 
     if args.collect_leaked_logs:
         collect_leaked_logs(args.config)
+        return
+
+    if args.migrate:
+        migrate_config(args.config)
         return
 
     set_config_envs(args)
