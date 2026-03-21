@@ -130,26 +130,15 @@ def parsing_args() -> argparse.Namespace:
         help="Enable prompting-based tool calls/function calling, otherwise use native tool calls/function calling",
     )
     parser.add_argument(
-        "--provider-tool-format",
-        action="store_true",
-        help="Enable provider-specific tool format, user should handle the tool calls as they arrive, otherwise all tool calls will be converted to the openai format",
-    )
-    parser.add_argument(
         "--username-passthrough",
         action="store_true",
         help="Enable username passthrough mode - use API key from request headers as user field",
     )
     parser.add_argument(
-        "--native-openai",
+        "--legacy-argo",
         action="store_true",
         default=False,
-        help="Enable native OpenAI endpoint passthrough mode - directly forward requests to native OpenAI endpoint without transformation",
-    )
-    parser.add_argument(
-        "--native-anthropic",
-        action="store_true",
-        default=False,
-        help="Enable native Anthropic endpoint passthrough mode - expose /v1/messages endpoint and directly forward requests to native Anthropic-compatible endpoint without transformation",
+        help="Enable legacy ARGO gateway mode - use the legacy ARGO gateway endpoints instead of native upstream dispatch",
     )
     parser.add_argument(
         "--enable-leaked-tool-fix",
@@ -219,14 +208,10 @@ def set_config_envs(args: argparse.Namespace):
         os.environ["REAL_STREAM"] = str(False)
     if args.tool_prompting:
         os.environ["TOOL_PROMPT"] = str(True)
-    if args.provider_tool_format:
-        os.environ["PROVIDER_TOOL_FORMAT"] = str(True)
     if args.username_passthrough:
         os.environ["USERNAME_PASSTHROUGH"] = str(True)
-    if args.native_openai:
-        os.environ["USE_NATIVE_OPENAI"] = str(True)
-    if args.native_anthropic:
-        os.environ["USE_NATIVE_ANTHROPIC"] = str(True)
+    if args.legacy_argo:
+        os.environ["USE_LEGACY_ARGO"] = str(True)
     if args.enable_leaked_tool_fix:
         os.environ["ENABLE_LEAKED_TOOL_FIX"] = str(True)
     if args.dev:
@@ -429,9 +414,11 @@ def main():
         # This ensures attack logs go to the right directory
         from pathlib import Path
 
-        config_path = Path(args.config) if args.config else None
+        config_path: Path | None = Path(args.config) if args.config else None
         if config_path is None and hasattr(config_instance, "_config_path"):
-            config_path = config_instance._config_path
+            val = config_instance._config_path
+            if isinstance(val, Path):
+                config_path = val
 
         setup_logging(
             verbose=config_instance.verbose,
@@ -439,7 +426,7 @@ def main():
         )
 
         # Update attack logger with actual config path
-        if config_path:
+        if config_path is not None:
             get_attack_logger().set_config_path(config_path)
         if args.validate:
             log_info("Configuration validation successful.", context="cli")

@@ -743,7 +743,7 @@ class ModelRegistry:
 
     def as_openai_list(self) -> Dict[str, Any]:
         # Mock data for available models
-        model_data: Dict[str, Any] = {"object": "list", "data": []}  # type: ignore
+        model_data: Dict[str, Any] = {"object": "list", "data": []}
 
         # Populate the models data with the combined models
         for model_name, model_id in self.available_models.items():
@@ -838,6 +838,29 @@ class ModelRegistry:
 
         # Default to unknown
         return "unknown"
+
+    def resolve_model_target(
+        self,
+        resolved_model: str,
+        config: ArgoConfig,
+    ) -> Tuple[Literal["openai_chat", "anthropic"], str]:
+        """Map a resolved model name to its upstream provider and URL.
+
+        Anthropic models are routed to the native Anthropic endpoint to avoid
+        tool call leakage on the OpenAI-compatible endpoint. All other models
+        (OpenAI, Google, unknown) are routed to the native OpenAI Chat endpoint.
+
+        Args:
+            resolved_model: The internal model ID (e.g. "gpt4o", "claudesonnet4").
+            config: The ArgoConfig instance for URL resolution.
+
+        Returns:
+            Tuple of (provider_type, upstream_url).
+        """
+        family = self._classify_model_by_family(resolved_model)
+        if family == "anthropic":
+            return ("anthropic", config.native_anthropic_base_url)
+        return ("openai_chat", config.native_openai_base_url + "chat/completions")
 
     def get_model_stats(self) -> dict:
         """Get detailed model statistics including model family breakdown."""

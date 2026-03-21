@@ -8,7 +8,7 @@ from hashlib import md5
 from pathlib import Path
 from typing import Any, Dict, Literal, Optional, Tuple, Union, overload
 
-import yaml  # type: ignore
+import yaml
 from tqdm.asyncio import tqdm_asyncio
 
 from .utils.logging import log_error, log_info, log_warning
@@ -49,11 +49,12 @@ class ArgoConfig:
 
     # Native OpenAI endpoint
     _native_openai_base_url: str = ""
-    _use_native_openai: bool = False
 
     # Native Anthropic endpoint
     _native_anthropic_base_url: str = ""
-    _use_native_anthropic: bool = False
+
+    # Legacy ARGO gateway (opt-in fallback for v3.0.0)
+    _use_legacy_argo: bool = False
 
     # Config version for migration tracking
     config_version: str = ""
@@ -61,7 +62,6 @@ class ArgoConfig:
     # CLI flags
     _real_stream: bool = True
     _tool_prompt: bool = False
-    _provider_tool_format: bool = False
     _enable_leaked_tool_fix: bool = False
     _dev_mode: bool = False
 
@@ -149,14 +149,9 @@ class ArgoConfig:
         return f"{self.argo_base_url}/v1/"
 
     @property
-    def use_native_openai(self):
-        """Check if native OpenAI mode is enabled."""
-        return self._use_native_openai
-
-    @property
-    def use_native_anthropic(self):
-        """Check if native Anthropic mode is enabled."""
-        return self._use_native_anthropic
+    def use_legacy_argo(self):
+        """Check if legacy ARGO gateway mode is enabled (opt-in fallback)."""
+        return self._use_legacy_argo
 
     @property
     def native_anthropic_base_url(self) -> str:
@@ -190,9 +185,8 @@ class ArgoConfig:
             "argo_embedding_url": "_argo_embedding_url",
             "real_stream": "_real_stream",
             "native_openai_base_url": "_native_openai_base_url",
-            "use_native_openai": "_use_native_openai",
             "native_anthropic_base_url": "_native_anthropic_base_url",
-            "use_native_anthropic": "_use_native_anthropic",
+            "use_legacy_argo": "_use_legacy_argo",
             "skip_url_validation": "_skip_url_validation",
         }
         valid_fields = {
@@ -571,14 +565,30 @@ def _apply_env_overrides(config_data: ArgoConfig) -> ArgoConfig:
     if env_tool_prompt := os.getenv("TOOL_PROMPT"):
         config_data._tool_prompt = str_to_bool(env_tool_prompt)
 
-    if env_provider_tool_format := os.getenv("PROVIDER_TOOL_FORMAT"):
-        config_data._provider_tool_format = str_to_bool(env_provider_tool_format)
+    # Deprecated: USE_NATIVE_OPENAI and USE_NATIVE_ANTHROPIC are ignored in v3.0.0
+    # (native endpoints are now always used via universal dispatch)
+    if os.getenv("USE_NATIVE_OPENAI"):
+        log_warning(
+            "USE_NATIVE_OPENAI is deprecated in v3.0.0 and will be ignored. "
+            "Native endpoints are now used by default via universal dispatch.",
+            context="config",
+        )
+    if os.getenv("USE_NATIVE_ANTHROPIC"):
+        log_warning(
+            "USE_NATIVE_ANTHROPIC is deprecated in v3.0.0 and will be ignored. "
+            "Native endpoints are now used by default via universal dispatch.",
+            context="config",
+        )
+    # Deprecated: PROVIDER_TOOL_FORMAT is handled by llm-rosetta in v3.0.0
+    if os.getenv("PROVIDER_TOOL_FORMAT"):
+        log_warning(
+            "PROVIDER_TOOL_FORMAT is deprecated in v3.0.0 and will be ignored. "
+            "Format conversion is now handled by llm-rosetta.",
+            context="config",
+        )
 
-    if env_use_native_openai := os.getenv("USE_NATIVE_OPENAI"):
-        config_data._use_native_openai = str_to_bool(env_use_native_openai)
-
-    if env_use_native_anthropic := os.getenv("USE_NATIVE_ANTHROPIC"):
-        config_data._use_native_anthropic = str_to_bool(env_use_native_anthropic)
+    if env_use_legacy_argo := os.getenv("USE_LEGACY_ARGO"):
+        config_data._use_legacy_argo = str_to_bool(env_use_legacy_argo)
 
     if env_enable_leaked_tool_fix := os.getenv("ENABLE_LEAKED_TOOL_FIX"):
         config_data._enable_leaked_tool_fix = str_to_bool(env_enable_leaked_tool_fix)
@@ -610,10 +620,23 @@ def _migrate_config(config_dict: dict) -> dict:
         # Legacy config without version - compatible, just log a hint
         log_info(
             "Config file has no 'config_version' field. "
-            "Consider adding 'config_version: \"2\"' and using 'argo_base_url' "
+            "Consider adding 'config_version: \"3\"' and using 'argo_base_url' "
             "instead of individual URL fields.",
             context="config",
         )
+
+    # Migrate v2 → v3: remove deprecated native mode toggles
+    if version and version < "3":
+        deprecated_keys = ["use_native_openai", "use_native_anthropic", "provider_tool_format"]
+        found = [k for k in deprecated_keys if k in config_dict]
+        if found:
+            log_warning(
+                f"Config keys {found} are deprecated in v3.0.0 and will be ignored. "
+                "Native endpoints are now used by default via universal dispatch.",
+                context="config",
+            )
+            for k in found:
+                config_dict.pop(k, None)
 
     return config_dict
 
@@ -745,31 +768,27 @@ def validate_config(
 
     # Display mode information with styling
     log_info(make_bar(), context="config")
-    if config_data.use_native_openai:
-        log_warning("🚀 NATIVE OPENAI MODE: [ENABLED]", context="config")
-        log_info("   └─ Direct passthrough mode active", context="config")
+    if config_data.use_legacy_argo:
+        log_warning("⚠️  LEGACY ARGO MODE: [ENABLED]", context="config")
+        log_info("   └─ Using legacy ARGO gateway endpoints", context="config")
         log_warning(
-            "   ⚠️  Tool call streaming behavior may differ from standard mode",
+            "   ⚠️  Legacy mode has limited streaming and tool call support",
             context="config",
         )
-        log_warning(
-            "   ⚠️  Some argo-proxy features may be bypassed in native mode",
-            context="config",
-        )
-    if config_data.use_native_anthropic:
-        log_warning("🚀 NATIVE ANTHROPIC MODE: [ENABLED]", context="config")
-        log_info("   └─ Anthropic-compatible passthrough mode active", context="config")
-        log_info(
-            "   └─ Endpoint: /v1/messages → native Anthropic API", context="config"
-        )
-    if not config_data.use_native_openai and not config_data.use_native_anthropic:
-        log_warning("🔧 STANDARD MODE: [ENABLED]", context="config")
-        log_info("   └─ Full argo-proxy processing active", context="config")
-        # Only show stream mode when not in native OpenAI mode
         if not config_data.pseudo_stream:
             log_warning("   📡 Stream Mode: [REAL]", context="config")
         else:
             log_warning("   📡 Stream Mode: [PSEUDO]", context="config")
+    else:
+        log_warning("🌐 UNIVERSAL MODE: [ENABLED]", context="config")
+        log_info(
+            "   └─ All API formats supported (OpenAI Chat, Responses, Anthropic, Google GenAI)",
+            context="config",
+        )
+        log_info(
+            "   └─ Model-based routing to native upstreams via llm-rosetta",
+            context="config",
+        )
     log_info(make_bar(), context="config")
 
     return config_data

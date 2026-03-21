@@ -145,24 +145,26 @@ async def proxy_openai_chat_compatible(request: web.Request):
     log_info("/v1/chat/completions", context="app")
     config: ArgoConfig = request.app["config"]
 
-    # If native OpenAI mode is enabled, use passthrough
-    if config.use_native_openai:
-        return await native_openai.proxy_native_openai_request(
-            request, "chat/completions"
-        )
+    # In legacy mode, use old ARGO gateway pipeline
+    if config.use_legacy_argo:
+        return await chat.proxy_request(request)
 
-    return await chat.proxy_request(request)
+    # Universal mode: native OpenAI passthrough (dispatch.py will replace this in Phase 1)
+    return await native_openai.proxy_native_openai_request(
+        request, "chat/completions"
+    )
 
 
 async def proxy_openai_legacy_completions_compatible(request: web.Request):
     log_info("/v1/completions", context="app")
     config: ArgoConfig = request.app["config"]
 
-    # If native OpenAI mode is enabled, use passthrough
-    if config.use_native_openai:
-        return await native_openai.proxy_native_openai_request(request, "completions")
+    # Legacy completions only available in legacy mode
+    if config.use_legacy_argo:
+        return await completions.proxy_request(request)
 
-    return await completions.proxy_request(request)
+    # In universal mode, passthrough to native OpenAI
+    return await native_openai.proxy_native_openai_request(request, "completions")
 
 
 async def proxy_openai_responses_request(request: web.Request):
@@ -174,11 +176,12 @@ async def proxy_openai_embedding_request(request: web.Request):
     log_info("/v1/embeddings", context="app")
     config: ArgoConfig = request.app["config"]
 
-    # If native OpenAI mode is enabled, use passthrough
-    if config.use_native_openai:
-        return await native_openai.proxy_native_openai_request(request, "embeddings")
+    # In legacy mode, use old ARGO gateway pipeline
+    if config.use_legacy_argo:
+        return await embed.proxy_request(request, convert_to_openai=True)
 
-    return await embed.proxy_request(request, convert_to_openai=True)
+    # Universal mode: native OpenAI passthrough
+    return await native_openai.proxy_native_openai_request(request, "embeddings")
 
 
 async def proxy_anthropic_messages(request: web.Request):
@@ -304,9 +307,8 @@ def create_app():
     app.router.add_post("/v1/embeddings", proxy_openai_embedding_request)
     app.router.add_get("/v1/models", get_models)
 
-    # anthropic compatible (native passthrough)
-    if str_to_bool(os.environ.get("USE_NATIVE_ANTHROPIC", "false")):
-        app.router.add_post("/v1/messages", proxy_anthropic_messages)
+    # anthropic compatible (always registered in v3.0.0)
+    app.router.add_post("/v1/messages", proxy_anthropic_messages)
 
     # extras
     app.router.add_post("/refresh", refresh_models)
