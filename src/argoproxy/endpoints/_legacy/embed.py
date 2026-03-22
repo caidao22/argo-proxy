@@ -1,13 +1,13 @@
 import json
 from http import HTTPStatus
-from typing import Any, Dict, List, Union
+from typing import Any, Union, cast
 
 import aiohttp
 from aiohttp import web
 
 from ...config import ArgoConfig
 from ...models import ModelRegistry
-from ...types import CreateEmbeddingResponse, Embedding
+from ...types import CreateEmbeddingResponse, Embedding, Usage
 from ...utils.logging import (
     log_converted_request,
     log_info,
@@ -22,10 +22,10 @@ DEFAULT_MODEL = "argo:text-embedding-3-small"
 
 
 def make_it_openai_embeddings_compat(
-    custom_response: Union[str, Dict[str, Any]],
+    custom_response: Union[str, dict[str, Any]],
     model_name: str,
-    prompt: Union[str, List[str]],
-) -> Union[Dict[str, Any], str]:
+    prompt: Union[str, list[str]],
+) -> Union[dict[str, Any], str]:
     """Converts a custom API response to an OpenAI-compatible response.
 
     Args:
@@ -57,7 +57,7 @@ def make_it_openai_embeddings_compat(
         openai_response = CreateEmbeddingResponse(
             data=data,
             model=model_name,
-            usage=create_usage(prompt_tokens, 0, api_type="embedding"),
+            usage=cast(Usage, create_usage(prompt_tokens, 0, api_type="embedding")),
         )
         return openai_response.model_dump()
 
@@ -68,10 +68,10 @@ def make_it_openai_embeddings_compat(
 
 
 def prepare_request_data(
-    data: Dict[str, Any],
+    data: dict[str, Any],
     config: ArgoConfig,
     model_registry: ModelRegistry,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Modifies and prepares the incoming request data by adding user information
     and remapping the model according to configurations.
@@ -123,7 +123,7 @@ async def proxy_request(
 
     try:
         # Retrieve the incoming JSON data
-        data: Dict[str, Any] = await request.json()
+        data: dict[str, Any] = await request.json()
         if not data:
             raise ValueError("Invalid input. Expected JSON data.")
 
@@ -135,7 +135,7 @@ async def proxy_request(
         # Log converted request
         log_converted_request(data, verbose=config.verbose)
 
-        headers: Dict[str, str] = {"Content-Type": "application/json"}
+        headers: dict[str, str] = {"Content-Type": "application/json"}
 
         # Use the shared HTTP session from app context for connection pooling
         session = request.app["http_session"]
@@ -165,7 +165,7 @@ async def proxy_request(
                         content_type="application/json",
                     )
 
-            response_data: Dict[str, Any] = await resp.json()
+            response_data: dict[str, Any] = await resp.json()
 
             if config.verbose:
                 log_info(make_bar("[embed] fwd. response"), context="embed")

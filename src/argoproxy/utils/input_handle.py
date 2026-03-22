@@ -1,7 +1,7 @@
-from typing import Any, Dict, List
+from typing import Any
 
 
-def deduplicate_and_concatenate(messages: List[str]) -> str:
+def deduplicate_and_concatenate(messages: list[str]) -> str:
     """
     Removes duplicates and concatenates messages with double newline separation.
 
@@ -14,7 +14,7 @@ def deduplicate_and_concatenate(messages: List[str]) -> str:
     return "\n\n".join(dict.fromkeys(messages)).strip()
 
 
-def handle_multiple_entries_prompt(data: Dict[str, Any]) -> Dict[str, Any]:
+def handle_multiple_entries_prompt(data: dict[str, Any]) -> dict[str, Any]:
     """
     Deduplicates and merges 'system' and 'prompt' lists into single strings.
 
@@ -36,7 +36,7 @@ def handle_multiple_entries_prompt(data: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
-def handle_option_2_input(data: Dict[str, Any]) -> Dict[str, Any]:
+def handle_option_2_input(data: dict[str, Any]) -> dict[str, Any]:
     """
     Segregates messages into 'system' and 'prompt' based on roles.
 
@@ -77,7 +77,7 @@ def handle_option_2_input(data: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
-def handle_no_sys_msg(data: Dict[str, Any]) -> Dict[str, Any]:
+def handle_no_sys_msg(data: dict[str, Any]) -> dict[str, Any]:
     """
     Changes 'system' messages to 'user' and merges into 'prompt'.
 
@@ -103,8 +103,8 @@ def handle_no_sys_msg(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def normalize_system_message_content(
-    messages: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     """
     Normalizes content field for system/developer role messages.
 
@@ -153,7 +153,7 @@ def normalize_system_message_content(
     return messages
 
 
-def ensure_user_message_exists(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def ensure_user_message_exists(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Ensures at least one user message exists in the messages list.
 
@@ -191,7 +191,7 @@ def ensure_user_message_exists(messages: List[Dict[str, Any]]) -> List[Dict[str,
     return messages
 
 
-def scrutinize_message_entries(data: Dict[str, Any]) -> Dict[str, Any]:
+def scrutinize_message_entries(data: dict[str, Any]) -> dict[str, Any]:
     """
     Scrutinizes and normalizes message entries, ensuring proper content formatting.
 

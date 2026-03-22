@@ -1,5 +1,3 @@
-from typing import Optional
-
 import aiohttp
 from aiohttp import web
 
@@ -61,7 +59,7 @@ async def refresh_models(request: web.Request):
     )
 
 
-async def get_latest_pypi_version() -> Optional[str]:
+async def get_latest_pypi_version() -> str | None:
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(

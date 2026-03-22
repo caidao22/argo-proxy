@@ -1,7 +1,6 @@
 import os
 import random
 import socket
-from typing import Optional
 
 from aiohttp import web
 
@@ -97,7 +96,7 @@ def is_port_available(port: int, timeout: float = 0.1) -> bool:
                 s.bind(("127.0.0.1", port))
                 s.close()
                 return True
-        except (OSError, socket.timeout):
+        except (TimeoutError, OSError):
             continue
     return False
 
@@ -107,7 +106,7 @@ def str_to_bool(value: str) -> bool:
     return value.lower() in {"true", "1", "t", "yes", "on"}
 
 
-def extract_api_key_from_request(request: web.Request) -> Optional[str]:
+def extract_api_key_from_request(request: web.Request) -> str | None:
     """
     Extract API key from request headers for username passthrough functionality.
 

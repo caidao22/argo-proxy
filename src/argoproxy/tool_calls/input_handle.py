@@ -16,7 +16,7 @@ Usage
 """
 
 import json
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Literal, Union
 
 from pydantic import ValidationError
 
@@ -28,8 +28,8 @@ from .tool_prompts import get_prompt_skeleton
 # TYPE ALIASES
 # ======================================================================
 
-Tools = List[Dict[str, Any]]
-ToolChoice = Union[str, Dict[str, Any], None]
+Tools = list[dict[str, Any]]
+ToolChoice = Union[str, dict[str, Any], None]
 
 # ======================================================================
 # PROMPT-BASED TOOL HANDLING
@@ -41,7 +41,7 @@ def build_tool_prompt(
     tool_choice: ToolChoice = None,
     *,
     parallel_tool_calls: bool = False,
-    json_indent: Optional[int] = None,
+    json_indent: int | None = None,
     model_family: Literal["openai", "anthropic", "google"] = "openai",
 ) -> str:
     """
@@ -81,7 +81,7 @@ def build_tool_prompt(
     )
 
 
-def handle_tools_prompt(data: Dict[str, Any]) -> Dict[str, Any]:
+def handle_tools_prompt(data: dict[str, Any]) -> dict[str, Any]:
     """
     Process input data containing tool calls using prompt-based approach.
 
@@ -164,8 +164,8 @@ def handle_tools_prompt(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def handle_google_parallel_tool_calls(
-    messages: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     """
     Handle Google/Gemini's parallel tool calls by converting them to sequential format.
 
@@ -249,12 +249,12 @@ def handle_google_parallel_tool_calls(
 
 
 def handle_tools_native(
-    data: Dict[str, Any],
+    data: dict[str, Any],
     *,
     input_format: Literal[
         "openai-chatcompletion", "anthropic", "google"
     ] = "openai-chatcompletion",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Handles tool calls by converting them to the appropriate format for the target model.
 
     Uses middleware classes from handler.py to process tool-related parameters in the request data
@@ -549,13 +549,13 @@ def handle_tools_native(
 
 
 def handle_tools(
-    data: Dict[str, Any],
+    data: dict[str, Any],
     *,
     native_tools: bool = True,
     input_format: Literal[
         "openai-chatcompletion", "anthropic", "google"
     ] = "openai-chatcompletion",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Process input data containing tool calls with fallback strategy.
 

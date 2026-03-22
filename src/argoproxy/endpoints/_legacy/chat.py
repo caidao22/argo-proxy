@@ -3,7 +3,8 @@ import json
 import time
 import uuid
 from http import HTTPStatus
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Union, cast
+from typing import Any, Literal, Union, cast
+from collections.abc import Awaitable, Callable
 
 import aiohttp
 from aiohttp import web
@@ -24,7 +25,7 @@ from ...types import (
     NonStreamChoice,
     StreamChoice,
 )
-from ...types.chat_completion import FINISH_REASONS
+from ...types.chat_completion import FINISH_REASONS, CompletionUsage
 from ...utils.image_processing import process_openai_images
 from ...utils.input_handle import (
     handle_multiple_entries_prompt,
@@ -57,17 +58,17 @@ DEFAULT_MODEL = "argo:gpt-4o"
 
 
 async def transform_chat_completions_streaming_async(
-    content: Optional[str] = None,
+    content: str | None = None,
     *,
     model_name: str,
     create_timestamp: int,
     finish_reason: FINISH_REASONS = "stop",
-    tool_calls: Optional[Dict[str, Any]] = None,
+    tool_calls: dict[str, Any] | None = None,
     tc_index: int = 0,
     is_first_chunk: bool = False,
-    chunk_id: Optional[str] = None,
+    chunk_id: str | None = None,
     **kwargs,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Transforms the custom API response into a streaming OpenAI-compatible format.
 
@@ -121,15 +122,15 @@ async def transform_chat_completions_streaming_async(
 
 
 async def transform_chat_completions_non_streaming_async(
-    content: Optional[str] = None,
+    content: str | None = None,
     *,
     model_name: str,
     create_timestamp: int,
     prompt_tokens: int,
     finish_reason: FINISH_REASONS = "stop",
-    tool_calls: Optional[List[Dict[str, Any]]] = None,
+    tool_calls: list[dict[str, Any]] | None = None,
     **kwargs,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Asynchronously transforms the custom API response into a non-streaming OpenAI-compatible format.
     """
@@ -146,7 +147,8 @@ async def transform_chat_completions_non_streaming_async(
         tool_calls_obj = None
         if tool_calls and isinstance(tool_calls, list):
             tool_calls_obj = tool_calls_to_openai(
-                tool_calls, api_format="chat_completion"
+                cast(list[Union[dict[str, Any], Any]], tool_calls),
+                api_format="chat_completion",
             )
 
         openai_response = ChatCompletion(
@@ -163,7 +165,7 @@ async def transform_chat_completions_non_streaming_async(
                     finish_reason=finish_reason,
                 )
             ],
-            usage=usage,
+            usage=cast(CompletionUsage, usage),
         )
 
         return openai_response.model_dump()
@@ -175,12 +177,12 @@ async def transform_chat_completions_non_streaming_async(
 
 
 def prepare_chat_request_data(
-    data: Dict[str, Any],
+    data: dict[str, Any],
     config: ArgoConfig,
     model_registry: ModelRegistry,
     *,
     enable_tools: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Prepares chat request data for upstream APIs based on model type.
 
@@ -247,11 +249,11 @@ def prepare_chat_request_data(
 async def send_non_streaming_request(
     session: aiohttp.ClientSession,
     config: ArgoConfig,
-    data: Dict[str, Any],
+    data: dict[str, Any],
     *,
     convert_to_openai: bool = False,
     openai_compat_fn: Union[
-        Callable[..., Dict[str, Any]], Callable[..., Awaitable[Dict[str, Any]]]
+        Callable[..., dict[str, Any]], Callable[..., Awaitable[dict[str, Any]]]
     ] = transform_chat_completions_non_streaming_async,
 ) -> web.Response:
     """Sends a non-streaming request to an API and processes the response.
@@ -335,7 +337,10 @@ async def send_non_streaming_request(
             # Process response content with the updated ToolInterceptor
             tool_calls, clean_text = cs.process(
                 response_content,
-                determine_model_family(data["model"]),
+                cast(
+                    Literal["openai", "anthropic", "google"],
+                    determine_model_family(data["model"]),
+                ),
                 request_data=data,
             )
             finish_reason = "tool_calls" if tool_calls else "stop"
@@ -378,13 +383,13 @@ async def send_non_streaming_request(
 async def _handle_pseudo_stream(
     response: web.StreamResponse,
     upstream_resp: aiohttp.ClientResponse,
-    data: Dict[str, Any],
+    data: dict[str, Any],
     created_timestamp: int,
     prompt_tokens: int,
     convert_to_openai: bool,
     openai_compat_fn: Union[
-        Callable[..., Dict[str, Any]],
-        Callable[..., Awaitable[Dict[str, Any]]],
+        Callable[..., dict[str, Any]],
+        Callable[..., Awaitable[dict[str, Any]]],
     ],
 ) -> None:
     """
@@ -416,7 +421,12 @@ async def _handle_pseudo_stream(
         cs = ToolInterceptor()
         # Process response content with the updated ToolInterceptor
         tool_calls, cleaned_text = cs.process(
-            response_content, determine_model_family(data["model"]), request_data=data
+            response_content,
+            cast(
+                Literal["openai", "anthropic", "google"],
+                determine_model_family(data["model"]),
+            ),
+            request_data=data,
         )
         is_first_chunk = True
 
@@ -448,7 +458,7 @@ async def _handle_pseudo_stream(
                         is_first_chunk=is_first_chunk,
                         chunk_id=shared_id,
                     )
-                await send_off_sse(response, cast(Dict[str, Any], chunk_json))
+                await send_off_sse(response, cast(dict[str, Any], chunk_json))
                 is_first_chunk = False  # Only the first chunk gets role: assistant
 
         total_processed = 0
@@ -483,7 +493,7 @@ async def _handle_pseudo_stream(
                     is_first_chunk=is_first_chunk,
                     chunk_id=shared_id,
                 )
-            await send_off_sse(response, cast(Dict[str, Any], chunk_json))
+            await send_off_sse(response, cast(dict[str, Any], chunk_json))
             is_first_chunk = False  # Only the first chunk gets role: assistant
 
         # Count completion tokens and send usage
@@ -515,13 +525,13 @@ async def _handle_pseudo_stream(
 async def _handle_real_stream(
     response: web.StreamResponse,
     upstream_resp: aiohttp.ClientResponse,
-    data: Dict[str, Any],
+    data: dict[str, Any],
     created_timestamp: int,
     prompt_tokens: int,
     convert_to_openai: bool,
     openai_compat_fn: Union[
-        Callable[..., Dict[str, Any]],
-        Callable[..., Awaitable[Dict[str, Any]]],
+        Callable[..., dict[str, Any]],
+        Callable[..., Awaitable[dict[str, Any]]],
     ],
 ) -> None:
     """
@@ -576,7 +586,7 @@ async def _handle_real_stream(
                         is_first_chunk=is_first_chunk,
                         chunk_id=shared_id,
                     )
-                await send_off_sse(response, cast(Dict[str, Any], chunk_json))
+                await send_off_sse(response, cast(dict[str, Any], chunk_json))
                 is_first_chunk = False  # Only the first chunk gets role: assistant
 
         # Handle any remaining pending bytes at the end of stream
@@ -607,7 +617,7 @@ async def _handle_real_stream(
                     is_first_chunk=is_first_chunk,
                     chunk_id=shared_id,
                 )
-            await send_off_sse(response, cast(Dict[str, Any], chunk_json))
+            await send_off_sse(response, cast(dict[str, Any], chunk_json))
 
         # Count completion tokens and send usage
         completion_tokens = await count_tokens_async(
@@ -640,13 +650,13 @@ async def _handle_real_stream(
 async def send_streaming_request(
     session: aiohttp.ClientSession,
     config: ArgoConfig,
-    data: Dict[str, Any],
+    data: dict[str, Any],
     request: web.Request,
     *,
     convert_to_openai: bool = False,
     openai_compat_fn: Union[
-        Callable[..., Dict[str, Any]],
-        Callable[..., Awaitable[Dict[str, Any]]],
+        Callable[..., dict[str, Any]],
+        Callable[..., Awaitable[dict[str, Any]]],
     ] = transform_chat_completions_streaming_async,
     pseudo_stream: bool = False,
 ) -> web.StreamResponse:

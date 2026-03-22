@@ -12,7 +12,7 @@ import logging
 import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .logging import log_warning
 
@@ -68,7 +68,7 @@ class AttackLogger:
         ],
     }
 
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(self, config_path: Path | None = None):
         """Initialize the attack logger.
 
         Args:
@@ -76,7 +76,7 @@ class AttackLogger:
                 in a subdirectory relative to this path.
         """
         self.enabled = True
-        self._log_dir: Optional[Path] = None
+        self._log_dir: Path | None = None
         self._config_path = config_path
 
     @property
@@ -126,7 +126,7 @@ class AttackLogger:
         raw_request: str,
         error_type: str,
         error_message: str,
-        exc_info: Optional[tuple] = None,
+        exc_info: tuple | None = None,
     ) -> None:
         """Log an attack attempt with a concise warning and save details to file.
 
@@ -307,7 +307,7 @@ class AttackFilter(logging.Filter):
 
 
 # Global attack logger instance
-_attack_logger: Optional[AttackLogger] = None
+_attack_logger: AttackLogger | None = None
 
 
 def get_attack_logger() -> AttackLogger:
@@ -322,7 +322,7 @@ def get_attack_logger() -> AttackLogger:
     return _attack_logger
 
 
-def setup_attack_logging(config_path: Optional[Path] = None) -> AttackFilter:
+def setup_attack_logging(config_path: Path | None = None) -> AttackFilter:
     """Setup attack logging with the given config path.
 
     Args:

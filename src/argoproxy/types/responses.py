@@ -1,10 +1,9 @@
 # Deprecated: Legacy type definitions for the v2 ARGO gateway pipeline (--legacy-argo).
 # In v3.0.0, type handling is performed by llm-rosetta IR types via dispatch.py.
 
-from typing import List, Optional, TypeAlias, Union
+from typing import Literal, TypeAlias, Union
 
 from pydantic import BaseModel
-from typing_extensions import Literal
 
 from .function_call import FunctionTool, ResponseFunctionToolCall
 
@@ -50,9 +49,9 @@ class ResponseUsage(BaseModel):
 
 
 class Reasoning(BaseModel):
-    effort: Optional[Optional[Literal["low", "medium", "high"]]] = None
+    effort: Literal["low", "medium", "high"] | None = None
 
-    summary: Optional[Literal["auto", "concise", "detailed"]] = None
+    summary: Literal["auto", "concise", "detailed"] | None = None
 
 
 class ToolChoiceFunction(BaseModel):
@@ -75,7 +74,7 @@ class ResponseOutputMessage(BaseModel):
     id: str
     """The unique ID of the output message."""
 
-    content: List[
+    content: list[
         # Union[
         ResponseOutputText,
         # ResponseOutputRefusal,  # not sure when it could be triggered, disabled for now
@@ -107,7 +106,7 @@ class Response(BaseModel):
     # error: Optional[ResponseError] = None
     # """An error object returned when the model fails to generate a Response."""
 
-    instructions: Optional[str] = None
+    instructions: str | None = None
     """
     Inserts a system (or developer) message as the first item in the model's
     context.
@@ -129,7 +128,7 @@ class Response(BaseModel):
     object: Literal["response"] = "response"
     """The object type of this resource - always set to `response`."""
 
-    output: List[
+    output: list[
         Union[
             ResponseOutputMessage,
             ResponseFunctionToolCall,
@@ -149,7 +148,7 @@ class Response(BaseModel):
     # parallel_tool_calls: bool
     # """Whether to allow the model to run tool calls in parallel."""
 
-    temperature: Optional[float] = None
+    temperature: float | None = None
     """What sampling temperature to use, between 0 and 2.
 
     Higher values like 0.8 will make the output more random, while lower values like
@@ -164,7 +163,7 @@ class Response(BaseModel):
     can call.
     """
 
-    tools: List[FunctionTool] = []
+    tools: list[FunctionTool] = []
     """An array of tools the model may call while generating a response.
 
     You can specify which tool to use by setting the `tool_choice` parameter.
@@ -176,7 +175,7 @@ class Response(BaseModel):
       [function calling](https://platform.openai.com/docs/guides/function-calling).
     """
 
-    top_p: Optional[float] = None
+    top_p: float | None = None
     """
     An alternative to sampling with temperature, called nucleus sampling, where the
     model considers the results of the tokens with top_p probability mass. So 0.1
@@ -185,38 +184,39 @@ class Response(BaseModel):
     We generally recommend altering this or `temperature` but not both.
     """
 
-    background: Optional[bool] = False
+    background: bool | None = False
     """Whether to run the model response in the background.
 
     [Learn more](https://platform.openai.com/docs/guides/background).
     """
 
-    max_output_tokens: Optional[int] = None
+    max_output_tokens: int | None = None
     """
     An upper bound for the number of tokens that can be generated for a response,
     including visible output tokens and
     [reasoning tokens](https://platform.openai.com/docs/guides/reasoning).
     """
 
-    reasoning: Optional[Reasoning] = None
+    reasoning: Reasoning | None = None
     """**o-series models only**
 
     Configuration options for
     [reasoning models](https://platform.openai.com/docs/guides/reasoning).
     """
 
-    status: Optional[
+    status: (
         Literal[
             "completed", "failed", "in_progress", "cancelled", "queued", "incomplete"
         ]
-    ] = None
+        | None
+    ) = None
     """The status of the response generation.
 
     One of `completed`, `failed`, `in_progress`, `cancelled`, `queued`, or
     `incomplete`.
     """
 
-    usage: Optional[ResponseUsage] = None
+    usage: ResponseUsage | None = None
     """
     Represents token usage details including input tokens, output tokens, a
     breakdown of output tokens, and the total tokens used.

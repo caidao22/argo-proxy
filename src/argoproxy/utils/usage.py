@@ -1,14 +1,14 @@
 import json
 import uuid
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Literal, Union
 
 from ..types import CompletionUsage, ResponseUsage, Usage
 from .tokens import count_tokens_async
 
 
 async def calculate_completion_tokens_async(
-    content: Optional[str],
-    tool_calls: Optional[List[Any]],
+    content: str | None,
+    tool_calls: list[Any] | None,
     model: str,
     api_format: Literal["chat_completion", "response"] = "chat_completion",
 ) -> int:
@@ -91,8 +91,8 @@ def generate_usage_chunk(
     api_type: Literal["chat_completion", "completion", "response"],
     model: str,
     created_timestamp: int,
-    chunk_id: Optional[str] = None,
-) -> Dict[str, Any]:
+    chunk_id: str | None = None,
+) -> dict[str, Any]:
     """Generate a usage chunk for streaming responses.
 
     Args:

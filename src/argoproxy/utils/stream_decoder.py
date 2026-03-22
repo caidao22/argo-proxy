@@ -5,7 +5,7 @@ This module provides utilities for safely decoding UTF-8 byte streams where
 chunks may split multi-byte characters across packet boundaries.
 """
 
-from typing import AsyncIterator, Tuple
+from collections.abc import AsyncIterator
 
 
 class StreamDecoder:
@@ -28,7 +28,7 @@ class StreamDecoder:
         """Initialize the decoder with an empty buffer."""
         self._pending_bytes: bytes = b""
 
-    def decode(self, chunk_bytes: bytes) -> Tuple[str, bool]:
+    def decode(self, chunk_bytes: bytes) -> tuple[str, bool]:
         """
         Decode a chunk of bytes, handling incomplete UTF-8 sequences.
 

@@ -31,7 +31,7 @@ Usage example:
 """
 
 import json
-from typing import Any, Dict, Literal, Union
+from typing import Any, Literal, Union
 
 from pydantic import BaseModel
 
@@ -80,7 +80,7 @@ class ToolCall(BaseModel):
     @classmethod
     def from_entry(
         cls,
-        tool_call: Dict[str, Any],
+        tool_call: dict[str, Any],
         *,
         api_format: API_FORMATS = "openai-chatcompletion",
     ) -> "ToolCall":
@@ -142,7 +142,7 @@ class ToolCall(BaseModel):
 
             return cls(
                 id=tool_call_id,
-                name=origin_tool_call.name,
+                name=origin_tool_call.name or "",
                 arguments=arguments_str,
             )
         else:
@@ -157,6 +157,7 @@ class ToolCall(BaseModel):
         ChatCompletionMessageToolCall,
         ResponseFunctionToolCall,
         ToolUseBlock,
+        GeminiToolCall,
     ]:
         if api_format in ["openai", "openai-chatcompletion"]:
             tool_call = ChatCompletionMessageToolCall(
@@ -217,7 +218,7 @@ class ToolCall(BaseModel):
 
     def serialize(
         self, api_format: Union[API_FORMATS, Literal["general"]] = "general"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         return self.to_tool_call(api_format).model_dump()
 
     def __str__(self) -> str:
@@ -244,27 +245,27 @@ class Tool(BaseModel):
     """Name of the tool/function"""
     description: str
     """Description of the tool/function"""
-    parameters: Dict[str, Any]
+    parameters: dict[str, Any]
     """Parameter schema of the tool/function, usually in JSON Schema format"""
 
     @classmethod
     def from_entry(
-        cls, tool: Dict[str, Any], *, api_format: API_FORMATS = "openai-chatcompletion"
+        cls, tool: dict[str, Any], *, api_format: API_FORMATS = "openai-chatcompletion"
     ) -> "Tool":
         if api_format in ["openai", "openai-chatcompletion"]:
             # For OpenAI format, tool should be ChatCompletionToolParam format
             origin_tool = ChatCompletionToolParam.model_validate(tool)
             return Tool(
                 name=origin_tool.function.name,
-                description=origin_tool.function.description,
-                parameters=origin_tool.function.parameters,
+                description=origin_tool.function.description or "",
+                parameters=origin_tool.function.parameters or {},
             )
         elif api_format == "openai-response":
             origin_tool = FunctionTool.model_validate(tool)
             return Tool(
                 name=origin_tool.name,
-                description=origin_tool.description,
-                parameters=origin_tool.parameters,
+                description=origin_tool.description or "",
+                parameters=origin_tool.parameters or {},
             )
         elif api_format == "anthropic":
             origin_tool = ToolParam.model_validate(tool)
@@ -285,9 +286,9 @@ class Tool(BaseModel):
             origin_tool = GeminiTool.model_validate(tool)
 
             return Tool(
-                name=origin_tool.name,
-                description=origin_tool.description,
-                parameters=origin_tool.parameters,
+                name=origin_tool.name or "",
+                description=origin_tool.description or "",
+                parameters=origin_tool.parameters or {},
             )
         else:
             raise ValueError(f"Invalid API format: {api_format}")
@@ -301,6 +302,7 @@ class Tool(BaseModel):
         ChatCompletionToolParam,
         FunctionTool,
         ToolParam,
+        GeminiTool,
     ]:
         if api_format in ["openai", "openai-chatcompletion"]:
             tool = ChatCompletionToolParam(
@@ -342,7 +344,7 @@ class Tool(BaseModel):
 
     def serialize(
         self, api_format: Union[API_FORMATS, Literal["general"]] = "general"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         return self.to_tool(api_format).model_dump()
 
     def __str__(self) -> str:
@@ -391,7 +393,7 @@ class ToolChoice(BaseModel):
     @classmethod
     def from_entry(
         cls,
-        data: Union[str, Dict[str, Any]],
+        data: Union[str, dict[str, Any]],
         *,
         api_format: API_FORMATS = "openai-chatcompletion",
     ) -> "ToolChoice":
@@ -422,7 +424,7 @@ class ToolChoice(BaseModel):
 
     @classmethod
     def _handle_openai_chatcompletion(
-        cls, data: Union[str, Dict[str, Any]]
+        cls, data: Union[str, dict[str, Any]]
     ) -> "ToolChoice":
         """Handle OpenAI Chat Completions API format tool_choice"""
         if isinstance(data, str):
@@ -439,7 +441,7 @@ class ToolChoice(BaseModel):
             raise ValueError(f"Invalid tool choice data type: {type(data)}")
 
     @classmethod
-    def _handle_openai_response(cls, data: Union[str, Dict[str, Any]]) -> "ToolChoice":
+    def _handle_openai_response(cls, data: Union[str, dict[str, Any]]) -> "ToolChoice":
         """Handle OpenAI Responses API format tool_choice"""
         if isinstance(data, str):
             return cls._str_triage(data)
@@ -453,7 +455,7 @@ class ToolChoice(BaseModel):
             raise ValueError(f"Invalid tool choice data type: {type(data)}")
 
     @classmethod
-    def _handle_anthropic(cls, data: Union[str, Dict[str, Any]]) -> "ToolChoice":
+    def _handle_anthropic(cls, data: Union[str, dict[str, Any]]) -> "ToolChoice":
         """Handle Anthropic API format tool_choice.
 
         Anthropic's native format uses dicts like {"type": "auto"}, but string
@@ -493,7 +495,7 @@ class ToolChoice(BaseModel):
             )
 
     @classmethod
-    def _handle_google(cls, data: Union[str, Dict[str, Any]]) -> "ToolChoice":
+    def _handle_google(cls, data: Union[str, dict[str, Any]]) -> "ToolChoice":
         """Handle Google/Gemini API format tool_choice"""
         if isinstance(data, str):
             # Google uses different string values, map them to our internal format
@@ -532,7 +534,7 @@ class ToolChoice(BaseModel):
     def to_tool_choice(
         self,
         api_format: Union[API_FORMATS, Literal["general"]] = "general",
-    ) -> Union[str, Dict[str, Any], BaseModel, "ToolChoice"]:
+    ) -> Union[str, dict[str, Any], BaseModel, "ToolChoice"]:
         """
         Convert ToolChoice instance to data in the specified API format.
 
@@ -618,7 +620,7 @@ class ToolChoice(BaseModel):
         else:
             raise ValueError(f"Invalid tool choice type: {type(self.choice)}")
 
-    def _to_google(self) -> Union[str, Dict[str, Any]]:
+    def _to_google(self) -> Union[str, dict[str, Any]]:
         """Convert to Google/Gemini API format"""
         if isinstance(self.choice, str):
             if self.choice == "optional":
@@ -641,10 +643,12 @@ class ToolChoice(BaseModel):
     def serialize(
         self,
         api_format: Union[API_FORMATS, Literal["general"]] = "general",
-    ) -> Union[Dict[str, Any], str]:
+    ) -> Union[dict[str, Any], str]:
         serialized = self.to_tool_choice(api_format)
         return (
-            serialized.model_dump() if hasattr(serialized, "model_dump") else serialized
+            serialized.model_dump()  # type: ignore[call-non-callable]
+            if hasattr(serialized, "model_dump")
+            else serialized
         )
 
     def __str__(self):

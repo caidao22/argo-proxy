@@ -7,7 +7,6 @@ custom DNS resolution, and configurable timeouts.
 
 import os
 import socket
-from typing import Optional
 
 import aiohttp
 import aiohttp.abc
@@ -41,14 +40,17 @@ class StaticOverrideResolver(aiohttp.abc.AbstractResolver):
     def __init__(
         self,
         overrides: dict[str, str],
-        fallback: Optional[aiohttp.abc.AbstractResolver] = None,
+        fallback: aiohttp.abc.AbstractResolver | None = None,
     ):
         self._overrides = overrides
         self._fallback = fallback or aiohttp.DefaultResolver()
 
     async def resolve(
-        self, host: str, port: int = 0, family: int = socket.AF_INET
-    ) -> list[dict]:
+        self,
+        host: str,
+        port: int = 0,
+        family: socket.AddressFamily = socket.AF_INET,
+    ) -> list[aiohttp.abc.ResolveResult]:
         """Resolve hostname, using override if available.
 
         Args:
@@ -107,7 +109,7 @@ class OptimizedHTTPSession:
         total_timeout: int = 60,
         dns_cache_ttl: int = 300,
         user_agent: str = "argo-proxy",
-        resolve_overrides: Optional[dict[str, str]] = None,
+        resolve_overrides: dict[str, str] | None = None,
     ):
         connector_kwargs: dict = {
             "limit": total_connections,
@@ -116,7 +118,6 @@ class OptimizedHTTPSession:
             "use_dns_cache": True,
             "keepalive_timeout": keepalive_timeout,
             "enable_cleanup_closed": True,
-            "tcp_nodelay": True,
         }
 
         if resolve_overrides:
@@ -135,7 +136,7 @@ class OptimizedHTTPSession:
             sock_read=read_timeout,
         )
 
-        self.session: Optional[aiohttp.ClientSession] = None
+        self.session: aiohttp.ClientSession | None = None
         self.user_agent = user_agent
 
     async def create_session(self) -> aiohttp.ClientSession:

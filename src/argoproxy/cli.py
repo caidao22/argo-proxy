@@ -15,7 +15,6 @@ import subprocess
 import sys
 from argparse import RawTextHelpFormatter
 from pathlib import Path
-from typing import Optional
 
 from packaging import version
 
@@ -39,7 +38,7 @@ from .utils.logging import (
 # ---------------------------------------------------------------------------
 
 
-def setup_logging(verbose: bool = False, config_path: Optional[str] = None):
+def setup_logging(verbose: bool = False, config_path: str | None = None):
     """Setup logging with attack filter.
 
     Args:
@@ -406,7 +405,7 @@ def display_startup_banner(no_banner: bool = False):
 # ---------------------------------------------------------------------------
 
 
-def migrate_config(config_path: Optional[str] = None):
+def migrate_config(config_path: str | None = None):
     """Migrate configuration file from v1/v2 to v3 format in place.
 
     Creates a .bak backup before writing changes.
@@ -488,7 +487,7 @@ def migrate_config(config_path: Optional[str] = None):
 # ---------------------------------------------------------------------------
 
 
-def open_in_editor(config_path: Optional[str] = None):
+def open_in_editor(config_path: str | None = None):
     paths_to_try = [config_path] if config_path else PATHS_TO_TRY
 
     editors_to_try = [os.getenv("EDITOR")] if os.getenv("EDITOR") else []
@@ -519,7 +518,7 @@ def open_in_editor(config_path: Optional[str] = None):
 # ---------------------------------------------------------------------------
 
 
-def collect_leaked_logs(config_path: Optional[str] = None):
+def collect_leaked_logs(config_path: str | None = None):
     """Collect all leaked tool call logs into a tar.gz archive."""
     import tarfile
     from datetime import datetime
@@ -708,7 +707,7 @@ def _handle_logs(args: argparse.Namespace):
 # ---------------------------------------------------------------------------
 
 
-def _get_pypi_versions() -> dict[str, Optional[str]]:
+def _get_pypi_versions() -> dict[str, str | None]:
     """Query PyPI for the latest stable and pre-release versions.
 
     Returns:
@@ -717,7 +716,7 @@ def _get_pypi_versions() -> dict[str, Optional[str]]:
     import urllib.request
 
     url = "https://pypi.org/pypi/argo-proxy/json"
-    result: dict[str, Optional[str]] = {"stable": None, "pre": None}
+    result: dict[str, str | None] = {"stable": None, "pre": None}
 
     try:
         req = urllib.request.Request(

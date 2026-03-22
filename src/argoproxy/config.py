@@ -6,7 +6,7 @@ import threading
 from dataclasses import asdict, dataclass, field
 from hashlib import md5
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional, Tuple, Union, overload
+from typing import Any, Literal, Union, overload
 
 import yaml
 from tqdm.asyncio import tqdm_asyncio
@@ -393,7 +393,7 @@ class ArgoConfig:
         """Provide a formatted string representation for logger.infoing."""
         return json.dumps(self.to_dict(), indent=4)
 
-    def show(self, message: Optional[str] = None) -> None:
+    def show(self, message: str | None = None) -> None:
         """
         Display the current configuration in a formatted manner.
 
@@ -404,7 +404,7 @@ class ArgoConfig:
         _show(str(self), message if message else "Current configuration:")
 
 
-def _show(body: str, message: Optional[str] = None) -> None:
+def _show(body: str, message: str | None = None) -> None:
     """Helper to display a formatted message with a bar."""
     log_info(message if message else "", context="config")
     log_info(make_bar(), context="config")
@@ -434,7 +434,7 @@ def _get_user_port_choice(prompt: str, default_port: int) -> int:
 def _get_yes_no_input(
     prompt: str,
     default_choice: str = "y",
-    accept_value: Optional[dict[str, type]] = None,
+    accept_value: dict[str, type] | None = None,
 ) -> Union[bool, Any]:
     """General helper to get yes/no or specific value input from user.
 
@@ -488,7 +488,7 @@ def _get_yes_no_input(
 def _get_yes_no_input_with_timeout(
     prompt: str,
     default_choice: str = "y",
-    accept_value: Optional[dict[str, type]] = None,
+    accept_value: dict[str, type] | None = None,
     timeout=30,
 ):
     """Get yes/no input with timeout.
@@ -563,7 +563,7 @@ def _get_valid_username(username: str = "") -> str:
 
 
 def save_config(
-    config_data: ArgoConfig, config_path: Optional[Union[str, Path]] = None
+    config_data: ArgoConfig, config_path: Union[str, Path] | None = None
 ) -> str:
     """Save configuration to YAML file.
 
@@ -705,29 +705,29 @@ def _migrate_config(config_dict: dict) -> dict:
 
 @overload
 def load_config(
-    optional_path: Optional[Union[str, Path]] = None,
+    optional_path: Union[str, Path] | None = None,
     *,
     env_override: bool = True,
     as_is: Literal[False] = False,
     verbose: bool = True,
-) -> Tuple[Optional[ArgoConfig], Optional[Path]]: ...
+) -> tuple[ArgoConfig | None, Path | None]: ...
 @overload
 def load_config(
-    optional_path: Optional[Union[str, Path]] = None,
+    optional_path: Union[str, Path] | None = None,
     *,
     env_override: bool = True,
     as_is: Literal[True],
     verbose: bool = True,
-) -> Tuple[Optional[Dict[str, Any]], Optional[Path]]: ...
+) -> tuple[dict[str, Any] | None, Path | None]: ...
 
 
 def load_config(
-    optional_path: Optional[Union[str, Path]] = None,
+    optional_path: Union[str, Path] | None = None,
     *,
     env_override: bool = True,
     as_is: bool = False,
     verbose: bool = True,
-) -> Tuple[Optional[Union[ArgoConfig, Dict[str, Any]]], Optional[Path]]:
+) -> tuple[Union[ArgoConfig, dict[str, Any]] | None, Path | None]:
     """Loads configuration from file with optional environment variable overrides.
 
     Returns both the loaded config and the actual path it was loaded from.
@@ -754,7 +754,7 @@ def load_config(
 
     for path in paths_to_try:
         if path and os.path.exists(path):
-            with open(path, "r") as f:
+            with open(path) as f:
                 try:
                     config_dict = yaml.safe_load(f)
                     actual_path = Path(path).absolute()
@@ -784,7 +784,7 @@ def load_config(
 
 
 def validate_config(
-    optional_path: Optional[str] = None, show_config: bool = False
+    optional_path: str | None = None, show_config: bool = False
 ) -> ArgoConfig:
     """Validate configuration with user interaction if needed"""
     config_data, actual_path = load_config(optional_path)

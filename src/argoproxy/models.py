@@ -5,7 +5,7 @@ import json
 import re
 from collections import defaultdict
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional, Set, Tuple
+from typing import Any, Literal
 
 import aiohttp
 from pydantic import BaseModel
@@ -19,7 +19,7 @@ DEFAULT_TIMEOUT = 30
 
 
 # Create flattened mappings for lookup
-def flatten_mapping(mapping: Dict[str, Any]) -> Dict[str, str]:
+def flatten_mapping(mapping: dict[str, Any]) -> dict[str, str]:
     flat = {}
     for model, aliases in mapping.items():
         if isinstance(aliases, str):
@@ -71,8 +71,8 @@ _EMBED_MODELS = flatten_mapping(
 
 
 def filter_model_by_patterns(
-    model_dict: Dict[str, str], patterns: Set[str]
-) -> List[str]:
+    model_dict: dict[str, str], patterns: set[str]
+) -> list[str]:
     """Filter model_dict values (model_id) by given fnmatch patterns,
     returning both the model_name (key) and model_id (value) for matches."""
     matching = set()
@@ -84,7 +84,7 @@ def filter_model_by_patterns(
 
 
 # any models that unable to handle system prompt
-NO_SYS_MSG_PATTERNS: Set[str] = {
+NO_SYS_MSG_PATTERNS: set[str] = {
     "*o1preview",  # Explicitly matches gpto1preview
     "*o1mini",  # Explicitly matches gpto1mini
 }
@@ -96,7 +96,7 @@ NO_SYS_MSG_MODELS = filter_model_by_patterns(
 
 
 # any models that only able to handle single system prompt and no system prompt at all
-OPTION_2_INPUT_PATTERNS: Set[str] = set()
+OPTION_2_INPUT_PATTERNS: set[str] = set()
 # Commented out patterns:
 # "*gemini*",  # Matches any model name starting with 'gemini'
 # "*claude*",  # Matches any model name starting with 'claude'
@@ -110,7 +110,7 @@ OPTION_2_INPUT_MODELS = filter_model_by_patterns(
 )
 
 # any models that supports native tool call
-NATIVE_TOOL_CALL_PATTERNS: Set[str] = {
+NATIVE_TOOL_CALL_PATTERNS: set[str] = {
     "*o1",
     "*o3*",
     "*o4*",
@@ -142,12 +142,12 @@ class Model(BaseModel):
 
     id: str
     # New format fields (optional)
-    internal_id: Optional[str] = None
-    object: Optional[str] = "model"
-    created: Optional[int] = None
-    owned_by: Optional[str] = None
+    internal_id: str | None = None
+    object: str | None = "model"
+    created: int | None = None
+    owned_by: str | None = None
     # Old format fields (optional)
-    model_name: Optional[str] = None
+    model_name: str | None = None
 
     @property
     def display_name(self) -> str:
@@ -223,7 +223,7 @@ CLAUDE_PATTERN = "claude*"
 GEMINI_PATTERN = "gemini*"
 
 
-def produce_argo_model_list(upstream_models: List[Model]) -> Dict[str, str]:
+def produce_argo_model_list(upstream_models: list[Model]) -> dict[str, str]:
     """
     Generates a dictionary mapping standardized Argo model identifiers to their corresponding internal IDs.
 
@@ -272,8 +272,8 @@ def produce_argo_model_list(upstream_models: List[Model]) -> Dict[str, str]:
 
 async def get_upstream_model_list_async(
     url: str,
-    resolver_overrides: Optional[dict[str, str]] = None,
-) -> Dict[str, str]:
+    resolver_overrides: dict[str, str] | None = None,
+) -> dict[str, str]:
     """Fetches the list of available models from the upstream server asynchronously.
 
     Args:
@@ -409,8 +409,8 @@ async def _check_model_streamability(
     stream_url: str,
     non_stream_url: str,
     user: str,
-    payload: Dict[str, Any],
-) -> Tuple[str, Optional[bool]]:
+    payload: dict[str, Any],
+) -> tuple[str, bool | None]:
     """Check if a model is streamable using model_id."""
     payload_copy = payload.copy()
     payload_copy["model"] = model_id
@@ -440,8 +440,8 @@ async def _check_model_streamability(
 
 
 def _categorize_results(
-    results: List[Tuple[str, Optional[bool]]], model_mapping: Dict[str, str]
-) -> Tuple[List[str], List[str], List[str]]:
+    results: list[tuple[str, bool | None]], model_mapping: dict[str, str]
+) -> tuple[list[str], list[str], list[str]]:
     """Categorize model check results into streamable/non-streamable/unavailable.
     Maps results back to all aliases using the model_mapping."""
     streamable = set()
@@ -485,8 +485,8 @@ def _categorize_results(
 
 
 async def determine_models_availability(
-    stream_url: str, non_stream_url: str, user: str, model_list: Dict[str, str]
-) -> Tuple[List[str], List[str], List[str]]:
+    stream_url: str, non_stream_url: str, user: str, model_list: dict[str, str]
+) -> tuple[list[str], list[str], list[str]]:
     """
     Asynchronously checks which models are streamable.
     Args:
@@ -523,18 +523,18 @@ async def determine_models_availability(
 
 class ModelRegistry:
     def __init__(self, config: ArgoConfig):
-        self._chat_models: Dict[str, str] = {}
+        self._chat_models: dict[str, str] = {}
         self._no_sys_msg_models = NO_SYS_MSG_MODELS
         self._option_2_input_models = OPTION_2_INPUT_MODELS
         self._native_tool_call_models = NATIVE_TOOL_CALL_MODELS
 
         # these are model_name to failed_count mappings
-        self._streamable_models: Dict[str, int] = defaultdict(lambda: 0)
-        self._non_streamable_models: Dict[str, int] = defaultdict(lambda: 0)
-        self._unavailable_models: Dict[str, int] = defaultdict(lambda: 0)
+        self._streamable_models: dict[str, int] = defaultdict(lambda: 0)
+        self._non_streamable_models: dict[str, int] = defaultdict(lambda: 0)
+        self._unavailable_models: dict[str, int] = defaultdict(lambda: 0)
 
         # internal state
-        self._last_updated: Optional[datetime] = None
+        self._last_updated: datetime | None = None
         self._refresh_task = None
         self._config = config
 
@@ -652,7 +652,7 @@ class ModelRegistry:
         except Exception as e:
             log_error(f"Manual refresh failed: {str(e)}", context="ModelRegistry")
 
-    def _model_lookup_candidates(self, model_name: str) -> List[str]:
+    def _model_lookup_candidates(self, model_name: str) -> list[str]:
         """Build equivalent model-name candidates for flexible lookup.
 
         The ``available_models`` dict uses ``argo:xxx`` keys (e.g.
@@ -678,7 +678,7 @@ class ModelRegistry:
         if not raw:
             return []
 
-        candidates: List[str] = []
+        candidates: list[str] = []
 
         def _add(candidate: str) -> None:
             if candidate and candidate not in candidates:
@@ -765,9 +765,9 @@ class ModelRegistry:
             default_model = "argo:text-embedding-3-small"
         return self.available_models[default_model]
 
-    def as_openai_list(self) -> Dict[str, Any]:
+    def as_openai_list(self) -> dict[str, Any]:
         # Mock data for available models
-        model_data: Dict[str, Any] = {"object": "list", "data": []}
+        model_data: dict[str, Any] = {"object": "list", "data": []}
 
         # Populate the models data with the combined models
         for model_name, model_id in self.available_models.items():
@@ -867,7 +867,7 @@ class ModelRegistry:
         self,
         resolved_model: str,
         config: ArgoConfig,
-    ) -> Tuple[Literal["openai_chat", "anthropic"], str]:
+    ) -> tuple[Literal["openai_chat", "anthropic"], str]:
         """Map a resolved model name to its upstream provider and URL.
 
         Anthropic models are routed to the native Anthropic endpoint to avoid

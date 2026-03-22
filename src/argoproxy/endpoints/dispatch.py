@@ -187,13 +187,19 @@ def _build_upstream_headers(
     """
     headers: dict[str, str] = {"Content-Type": "application/json"}
 
-    # Collect the auth credential from whichever header the client sent
+    # Collect the auth credential from whichever header/param the client sent
     api_key: str | None = None
     if "Authorization" in request.headers:
         auth_val = request.headers["Authorization"]
         api_key = auth_val.removeprefix("Bearer ").strip() if auth_val else None
     if "x-api-key" in request.headers:
         api_key = request.headers["x-api-key"]
+    # Google GenAI SDK sends API key via x-goog-api-key header
+    if not api_key and "x-goog-api-key" in request.headers:
+        api_key = request.headers["x-goog-api-key"]
+    # Google GenAI clients may also pass the API key as a ?key= query parameter
+    if not api_key and "key" in request.query:
+        api_key = request.query["key"]
 
     if target_provider == "anthropic":
         if api_key:

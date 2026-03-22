@@ -7,14 +7,14 @@ This module contains utility functions to support the conversion of parallel
 tool calls to sequential format for Gemini API compatibility.
 """
 
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Union
 
 from ..utils.logging import log_debug, log_error
 
 
-def is_parallel_tool_call_message(message: Dict[str, Any]) -> bool:
+def is_parallel_tool_call_message(message: dict[str, Any]) -> bool:
     """Check if a message contains multiple tool calls (parallel tool calls)."""
-    return (
+    return bool(
         message.get("role") == "assistant"
         and message.get("tool_calls")
         and len(message["tool_calls"]) > 1
@@ -22,8 +22,8 @@ def is_parallel_tool_call_message(message: Dict[str, Any]) -> bool:
 
 
 def collect_tool_results(
-    messages: List[Dict[str, Any]], start_index: int
-) -> Tuple[List[Dict[str, Any]], int]:
+    messages: list[dict[str, Any]], start_index: int
+) -> tuple[list[dict[str, Any]], int]:
     """
     Collect consecutive tool result messages starting from start_index.
 
@@ -43,8 +43,8 @@ def collect_tool_results(
 
 
 def create_tool_result_mapping(
-    tool_results: List[Dict[str, Any]],
-) -> Dict[str, Dict[str, Any]]:
+    tool_results: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
     """Create a mapping from tool_call_id to tool_result for efficient lookup."""
     tool_result_map = {}
     for tool_result in tool_results:
@@ -55,11 +55,11 @@ def create_tool_result_mapping(
 
 
 def find_matching_tool_result(
-    tool_call: Dict[str, Any],
-    tool_result_map: Dict[str, Dict[str, Any]],
-    tool_results: List[Dict[str, Any]],
+    tool_call: dict[str, Any],
+    tool_result_map: dict[str, dict[str, Any]],
+    tool_results: list[dict[str, Any]],
     index: int,
-) -> Tuple[Union[Dict[str, Any], None], str]:
+) -> tuple[Union[dict[str, Any], None], str]:
     """
     Find the matching tool result for a given tool call.
 
@@ -98,7 +98,7 @@ def find_matching_tool_result(
     return None, "none"
 
 
-def verify_id_alignment(tool_call: Dict[str, Any], tool_result: Dict[str, Any]) -> None:
+def verify_id_alignment(tool_call: dict[str, Any], tool_result: dict[str, Any]) -> None:
     """Verify that tool call and result IDs are aligned and log any mismatches."""
     tool_call_id = tool_call.get("id")
     result_tool_call_id = tool_result.get("tool_call_id")
@@ -112,10 +112,10 @@ def verify_id_alignment(tool_call: Dict[str, Any], tool_result: Dict[str, Any]) 
 
 
 def create_sequential_call_result_pairs(
-    tool_calls: List[Dict[str, Any]],
-    tool_results: List[Dict[str, Any]],
+    tool_calls: list[dict[str, Any]],
+    tool_results: list[dict[str, Any]],
     base_content: str,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Convert parallel tool calls into sequential call-result pairs.
 

@@ -3,7 +3,7 @@
 #
 # File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 
-from typing import List, Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -40,7 +40,7 @@ class Completion(BaseModel):
     id: str
     """A unique identifier for the completion."""
 
-    choices: List[CompletionChoice]
+    choices: list[CompletionChoice]
     """The list of completion choices the model generated for the input prompt."""
 
     created: int
@@ -52,12 +52,12 @@ class Completion(BaseModel):
     object: Literal["text_completion"] = "text_completion"
     """The object type, which is always "text_completion" """
 
-    system_fingerprint: Optional[str] = None
+    system_fingerprint: str | None = None
     """This fingerprint represents the backend configuration that the model runs with.
 
     Can be used in conjunction with the `seed` request parameter to understand when
     backend changes have been made that might impact determinism.
     """
 
-    usage: Optional[CompletionUsage] = None
+    usage: CompletionUsage | None = None
     """Usage statistics for the completion request."""

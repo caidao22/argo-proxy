@@ -3,7 +3,7 @@ import json
 import time
 import uuid
 from http import HTTPStatus
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Union, cast
 
 import aiohttp
 from aiohttp import web
@@ -11,6 +11,7 @@ from aiohttp import web
 from ...config import ArgoConfig
 from ...models import ModelRegistry
 from ...tool_calls.output_handle import tool_calls_to_openai
+from ...tool_calls.handler import ToolCall
 from ...types import (
     Response,
     ResponseCompletedEvent,
@@ -24,6 +25,7 @@ from ...types import (
     ResponseOutputText,
     ResponseTextDeltaEvent,
     ResponseTextDoneEvent,
+    ResponseUsage,
 )
 from ...utils.logging import (
     log_converted_request,
@@ -67,9 +69,9 @@ def transform_non_streaming_response(
     model_name: str,
     create_timestamp: int,
     prompt_tokens: int,
-    tool_calls: Optional[List[Dict[str, Any]]] = None,
+    tool_calls: list[dict[str, Any]] | None = None,
     **kwargs,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Transforms a non-streaming custom API response into a format compatible with OpenAI's API.
 
@@ -92,10 +94,12 @@ def transform_non_streaming_response(
             if (
                 tool_calls
                 and len(tool_calls) > 0
-                and hasattr(tool_calls[0], "serialize")
+                and isinstance(tool_calls[0], ToolCall)
             ):
                 serializable_tool_calls = [
-                    tc.serialize("openai-response") for tc in tool_calls
+                    tc.serialize("openai-response")
+                    for tc in tool_calls
+                    if isinstance(tc, ToolCall)
                 ]
             else:
                 serializable_tool_calls = tool_calls
@@ -105,7 +109,12 @@ def transform_non_streaming_response(
 
         output = []
         if tool_calls:
-            output.extend(tool_calls_to_openai(tool_calls, api_format="response"))
+            output.extend(
+                tool_calls_to_openai(
+                    cast(list[Union[dict[str, Any], Any]], tool_calls),
+                    api_format="response",
+                )
+            )
         output.append(
             ResponseOutputMessage(
                 id=f"msg_{uuid.uuid4().hex}",
@@ -124,7 +133,7 @@ def transform_non_streaming_response(
             model=model_name,
             output=output,
             status="completed",
-            usage=usage,
+            usage=cast(ResponseUsage, usage),
         )
 
         return openai_response.model_dump()
@@ -147,9 +156,9 @@ async def transform_non_streaming_response_async(
     model_name: str,
     create_timestamp: int,
     prompt_tokens: int,
-    tool_calls: Optional[List[Dict[str, Any]]] = None,
+    tool_calls: list[dict[str, Any]] | None = None,
     **kwargs,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Asynchronously transforms a non-streaming custom API response into a format compatible with OpenAI's API.
 
@@ -170,7 +179,12 @@ async def transform_non_streaming_response_async(
 
         output = []
         if tool_calls:
-            output.extend(tool_calls_to_openai(tool_calls, api_format="response"))
+            output.extend(
+                tool_calls_to_openai(
+                    cast(list[Union[dict[str, Any], Any]], tool_calls),
+                    api_format="response",
+                )
+            )
         output.append(
             ResponseOutputMessage(
                 id=f"msg_{uuid.uuid4().hex}",
@@ -189,7 +203,7 @@ async def transform_non_streaming_response_async(
             model=model_name,
             output=output,
             status="completed",
-            usage=usage,
+            usage=cast(ResponseUsage, usage),
         )
 
         return openai_response.model_dump()
@@ -211,7 +225,7 @@ async def transform_non_streaming_response_async(
 def transform_streaming_response(
     custom_response: Any,
     **kwargs,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Transforms a streaming custom API response into a format compatible with OpenAI's API.
 
@@ -255,8 +269,8 @@ def transform_streaming_response(
 
 
 def prepare_request_data(
-    data: Dict[str, Any], config: ArgoConfig, model_registry: ModelRegistry
-) -> Dict[str, Any]:
+    data: dict[str, Any], config: ArgoConfig, model_registry: ModelRegistry
+) -> dict[str, Any]:
     """
     Prepares the incoming request data for response models.
 
@@ -293,12 +307,12 @@ def prepare_request_data(
 
 async def _handle_pseudo_stream_events(
     response: web.StreamResponse,
-    response_data: Dict[str, Any],
+    response_data: dict[str, Any],
     output_msg: ResponseOutputMessage,
     content_part: ResponseContentPartAddedEvent,
     output_item: ResponseOutputItemAddedEvent,
     sequence_number: int,
-) -> Tuple[int, str]:
+) -> tuple[int, str]:
     """
     Handles fake streaming events by simulating chunked responses.
 
@@ -338,7 +352,7 @@ async def _handle_real_stream_events(
     content_part: ResponseContentPartAddedEvent,
     output_item: ResponseOutputItemAddedEvent,
     sequence_number: int,
-) -> Tuple[int, str]:
+) -> tuple[int, str]:
     """
     Handles real streaming events by processing chunks from the upstream response.
 
@@ -392,7 +406,7 @@ async def _handle_real_stream_events(
 async def send_streaming_request(
     session: aiohttp.ClientSession,
     config: ArgoConfig,
-    data: Dict[str, Any],
+    data: dict[str, Any],
     request: web.Request,
     *,
     pseudo_stream: bool = False,
@@ -581,8 +595,9 @@ async def send_streaming_request(
         onset_response.output.append(output_msg)
         onset_response.status = "completed"
         output_tokens = await count_tokens_async(cumulated_response, data["model"])
-        onset_response.usage = create_usage(
-            prompt_tokens, output_tokens, api_type="response"
+        onset_response.usage = cast(
+            ResponseUsage,
+            create_usage(prompt_tokens, output_tokens, api_type="response"),
         )
         completed_event = ResponseCompletedEvent(
             response=onset_response,

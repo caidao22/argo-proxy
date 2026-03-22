@@ -2,7 +2,7 @@ import asyncio
 import base64
 import io
 import mimetypes
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 from urllib.parse import urlparse
 
 import aiohttp
@@ -21,7 +21,7 @@ except ImportError:
     )
 
 # Supported image formats
-SUPPORTED_IMAGE_FORMATS: Set[str] = {
+SUPPORTED_IMAGE_FORMATS: set[str] = {
     "image/png",
     "image/jpeg",
     "image/jpg",
@@ -29,7 +29,7 @@ SUPPORTED_IMAGE_FORMATS: Set[str] = {
     "image/gif",
 }
 
-SUPPORTED_EXTENSIONS: Set[str] = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+SUPPORTED_EXTENSIONS: set[str] = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
 
 # ======================================================================
@@ -63,12 +63,12 @@ def truncate_base64_for_logging(data_url: str, max_length: int = 100) -> str:
 
 
 def sanitize_data_for_logging(
-    data: Dict[str, Any],
+    data: dict[str, Any],
     max_base64_length: int = 100,
     max_content_length: int = 500,
     max_tool_desc_length: int = 100,
     truncate_tools: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Sanitizes request data for logging by truncating long content.
 
@@ -141,7 +141,7 @@ def sanitize_data_for_logging(
     return sanitized
 
 
-def create_request_summary(data: Dict[str, Any]) -> str:
+def create_request_summary(data: dict[str, Any]) -> str:
     """
     Creates a concise summary of a request for logging.
 
@@ -275,7 +275,7 @@ def validate_image_content(image_data: bytes, content_type: str) -> bool:
 
 async def download_image_to_base64(
     session: aiohttp.ClientSession, url: str, timeout: int = 30
-) -> Optional[str]:
+) -> str | None:
     """
     Downloads an image from a URL and converts it to a base64 data URL.
 
@@ -354,8 +354,8 @@ async def download_image_to_base64(
 
 
 def downsample_images_for_payload(
-    images: List[tuple[bytes, str]], max_payload_size: int = 20971520
-) -> List[tuple[bytes, str]]:
+    images: list[tuple[bytes, str]], max_payload_size: int = 20971520
+) -> list[tuple[bytes, str]]:
     """
     Reduce image quality to fit within the total payload size limit.
 
@@ -371,7 +371,7 @@ def downsample_images_for_payload(
             "PIL not available, skipping image downsampling",
             context="image_processing.downsample",
         )
-        return [img_data for img_data, _ in images]
+        return images
 
     total_size = sum(len(img_data) for img_data, _ in images)
     if total_size <= max_payload_size:
@@ -553,7 +553,7 @@ def downsample_image_if_needed(
         return image_data
 
 
-def _parse_data_url(data_url: str) -> Optional[tuple[bytes, str]]:
+def _parse_data_url(data_url: str) -> tuple[bytes, str] | None:
     """Parse a data URL into raw bytes and media type.
 
     Args:
@@ -573,9 +573,9 @@ def _parse_data_url(data_url: str) -> Optional[tuple[bytes, str]]:
 async def _download_and_process_images(
     session: aiohttp.ClientSession,
     all_urls: set,
-    config: Optional[Any] = None,
+    config: Any | None = None,
     context_label: str = "image_processing",
-) -> Dict[str, Optional[tuple[bytes, str]]]:
+) -> dict[str, tuple[bytes, str] | None]:
     """Shared pipeline: download images, parse data URLs, and downsample if needed.
 
     This function handles the common steps shared between OpenAI and Anthropic
@@ -611,8 +611,8 @@ async def _download_and_process_images(
     download_results = await asyncio.gather(*download_tasks, return_exceptions=True)
 
     # Step 2: Parse data URLs into (bytes, media_type) tuples
-    successful_downloads: List[tuple[bytes, str, str]] = []  # (data, type, url)
-    url_to_downloaded: Dict[str, Optional[tuple[bytes, str]]] = {}
+    successful_downloads: list[tuple[bytes, str, str]] = []  # (data, type, url)
+    url_to_downloaded: dict[str, tuple[bytes, str] | None] = {}
 
     for url, result in zip(all_urls, download_results):
         if isinstance(result, Exception):
@@ -682,8 +682,8 @@ async def _download_and_process_images(
 
 
 def _collect_openai_image_urls_from_content_part(
-    content_part: Dict[str, Any],
-) -> List[str]:
+    content_part: dict[str, Any],
+) -> list[str]:
     """
     Collects image URLs from a single OpenAI-format content part.
 
@@ -719,7 +719,7 @@ def _collect_openai_image_urls_from_content_part(
     return urls
 
 
-def _collect_openai_image_urls_from_message(message: Dict[str, Any]) -> List[str]:
+def _collect_openai_image_urls_from_message(message: dict[str, Any]) -> list[str]:
     """
     Collects all image URLs from a single OpenAI-format message.
 
@@ -745,8 +745,8 @@ def _collect_openai_image_urls_from_message(message: Dict[str, Any]) -> List[str
 
 
 async def _apply_openai_downloaded_images_to_content_part(
-    content_part: Dict[str, Any], url_to_base64: Dict[str, Optional[str]]
-) -> Dict[str, Any]:
+    content_part: dict[str, Any], url_to_base64: dict[str, str | None]
+) -> dict[str, Any]:
     """
     Applies downloaded base64 images to an OpenAI-format content part.
 
@@ -771,6 +771,7 @@ async def _apply_openai_downloaded_images_to_content_part(
     # Apply downloaded base64 if available
     if url in url_to_base64 and url_to_base64[url]:
         base64_url = url_to_base64[url]
+        assert base64_url is not None  # narrowing for type checker
         # Update the content part with the base64 data URL
         content_part = content_part.copy()
         content_part["image_url"] = image_url_obj.copy()
@@ -788,8 +789,8 @@ async def _apply_openai_downloaded_images_to_content_part(
 
 
 async def _apply_openai_downloaded_images_to_message(
-    message: Dict[str, Any], url_to_base64: Dict[str, Optional[str]]
-) -> Dict[str, Any]:
+    message: dict[str, Any], url_to_base64: dict[str, str | None]
+) -> dict[str, Any]:
     """
     Applies downloaded base64 images to an OpenAI-format message.
 
@@ -824,8 +825,8 @@ async def _apply_openai_downloaded_images_to_message(
 
 
 async def process_openai_images(
-    session: aiohttp.ClientSession, data: Dict[str, Any], config: Optional[Any] = None
-) -> Dict[str, Any]:
+    session: aiohttp.ClientSession, data: dict[str, Any], config: Any | None = None
+) -> dict[str, Any]:
     """
     Processes OpenAI-format chat completion data to convert image URLs to base64.
 
@@ -866,7 +867,7 @@ async def process_openai_images(
     )
 
     # Convert (bytes, media_type) back to data URL strings for OpenAI format
-    url_to_base64: Dict[str, Optional[str]] = {}
+    url_to_base64: dict[str, str | None] = {}
     for url, downloaded in url_to_downloaded.items():
         if downloaded is not None:
             img_data, media_type = downloaded
@@ -908,8 +909,8 @@ apply_downloaded_images_to_message = _apply_openai_downloaded_images_to_message
 
 
 def _collect_anthropic_image_urls_from_content_part(
-    content_part: Dict[str, Any],
-) -> List[str]:
+    content_part: dict[str, Any],
+) -> list[str]:
     """Collect image URLs from an Anthropic-format content part.
 
     Anthropic uses: {"type": "image", "source": {"type": "url", "url": "https://..."}}
@@ -941,7 +942,7 @@ def _collect_anthropic_image_urls_from_content_part(
     return urls
 
 
-def _collect_anthropic_image_urls_from_message(message: Dict[str, Any]) -> List[str]:
+def _collect_anthropic_image_urls_from_message(message: dict[str, Any]) -> list[str]:
     """Collect all image URLs from an Anthropic-format message.
 
     Args:
@@ -964,9 +965,9 @@ def _collect_anthropic_image_urls_from_message(message: Dict[str, Any]) -> List[
 
 
 async def _apply_anthropic_downloaded_images_to_message(
-    message: Dict[str, Any],
-    url_to_downloaded: Dict[str, Optional[tuple[bytes, str]]],
-) -> Dict[str, Any]:
+    message: dict[str, Any],
+    url_to_downloaded: dict[str, tuple[bytes, str] | None],
+) -> dict[str, Any]:
     """Apply downloaded images to an Anthropic-format message.
 
     Converts image content parts from URL source type to base64 source type.
@@ -993,7 +994,9 @@ async def _apply_anthropic_downloaded_images_to_message(
         ):
             url = content_part["source"].get("url", "")
             if url in url_to_downloaded and url_to_downloaded[url] is not None:
-                img_data, media_type = url_to_downloaded[url]
+                downloaded = url_to_downloaded[url]
+                assert downloaded is not None
+                img_data, media_type = downloaded
                 b64_data = base64.b64encode(img_data).decode("utf-8")
                 processed_part = content_part.copy()
                 processed_part["source"] = {
@@ -1021,8 +1024,8 @@ async def _apply_anthropic_downloaded_images_to_message(
 
 
 async def process_anthropic_images(
-    session: aiohttp.ClientSession, data: Dict[str, Any], config: Optional[Any] = None
-) -> Dict[str, Any]:
+    session: aiohttp.ClientSession, data: dict[str, Any], config: Any | None = None
+) -> dict[str, Any]:
     """Process Anthropic-format messages to convert image URLs to base64.
 
     Anthropic image content blocks use:

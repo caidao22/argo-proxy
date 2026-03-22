@@ -3,7 +3,8 @@ import json
 import time
 import uuid
 from http import HTTPStatus
-from typing import Any, Awaitable, Callable, Dict, Optional, Union, cast
+from typing import Any, Union, cast
+from collections.abc import Awaitable, Callable
 
 import aiohttp
 from aiohttp import web
@@ -11,6 +12,7 @@ from aiohttp import web
 from ...config import ArgoConfig
 from ...models import ModelRegistry
 from ...types import Completion, CompletionChoice
+from ...types.completions import CompletionUsage
 from ...types.completions import FINISH_REASONS
 from ...utils.logging import (
     log_converted_request,
@@ -38,9 +40,9 @@ def transform_completions_compat(
     create_timestamp: int,
     prompt_tokens: int,
     is_streaming: bool = False,
-    finish_reason: Optional[FINISH_REASONS] = None,
+    finish_reason: FINISH_REASONS | None = None,
     **kwargs,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Converts a custom API response to an OpenAI-compatible completion API response.
 
     Args:
@@ -73,7 +75,7 @@ def transform_completions_compat(
                     finish_reason=finish_reason or "stop",
                 )
             ],
-            usage=usage if not is_streaming else None,
+            usage=cast(CompletionUsage, usage) if not is_streaming else None,
         )
 
         return openai_response.model_dump()
@@ -91,9 +93,9 @@ async def transform_completions_compat_async(
     create_timestamp: int,
     prompt_tokens: int,
     is_streaming: bool = False,
-    finish_reason: Optional[FINISH_REASONS] = None,
+    finish_reason: FINISH_REASONS | None = None,
     **kwargs,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Asynchronously converts a custom API response to an OpenAI-compatible completion API response.
 
     Args:
@@ -126,7 +128,7 @@ async def transform_completions_compat_async(
                     finish_reason=finish_reason or "stop",
                 )
             ],
-            usage=usage if not is_streaming else None,
+            usage=cast(CompletionUsage, usage) if not is_streaming else None,
         )
 
         return openai_response.model_dump()
@@ -140,11 +142,11 @@ async def transform_completions_compat_async(
 async def _handle_pseudo_stream_completions(
     response: web.StreamResponse,
     upstream_resp: aiohttp.ClientResponse,
-    data: Dict[str, Any],
+    data: dict[str, Any],
     created_timestamp: int,
     prompt_tokens: int,
     openai_compat_fn: Union[
-        Callable[..., Dict[str, Any]], Callable[..., Awaitable[Dict[str, Any]]]
+        Callable[..., dict[str, Any]], Callable[..., Awaitable[dict[str, Any]]]
     ],
 ) -> None:
     """Handles fake streaming for completions by simulating chunked responses."""
@@ -187,7 +189,7 @@ async def _handle_pseudo_stream_completions(
                 is_streaming=True,
                 finish_reason=finish_reason,
             )
-        await send_off_sse(response, cast(Dict[str, Any], chunk_json))
+        await send_off_sse(response, cast(dict[str, Any], chunk_json))
 
     # Send usage chunk
     completion_tokens = await count_tokens_async(total_response_content, data["model"])
@@ -204,11 +206,11 @@ async def _handle_pseudo_stream_completions(
 async def _handle_real_stream_completions(
     response: web.StreamResponse,
     upstream_resp: aiohttp.ClientResponse,
-    data: Dict[str, Any],
+    data: dict[str, Any],
     created_timestamp: int,
     prompt_tokens: int,
     openai_compat_fn: Union[
-        Callable[..., Dict[str, Any]], Callable[..., Awaitable[Dict[str, Any]]]
+        Callable[..., dict[str, Any]], Callable[..., Awaitable[dict[str, Any]]]
     ],
 ) -> None:
     """Handles real streaming for completions by processing chunks from the upstream response."""
@@ -241,7 +243,7 @@ async def _handle_real_stream_completions(
                     is_streaming=True,
                     finish_reason=None,
                 )
-            await send_off_sse(response, cast(Dict[str, Any], chunk_json))
+            await send_off_sse(response, cast(dict[str, Any], chunk_json))
 
     # Handle any remaining pending bytes at the end of stream
     remaining = decoder.flush()
@@ -265,7 +267,7 @@ async def _handle_real_stream_completions(
                 is_streaming=True,
                 finish_reason=None,
             )
-        await send_off_sse(response, cast(Dict[str, Any], chunk_json))
+        await send_off_sse(response, cast(dict[str, Any], chunk_json))
 
     # Send usage chunk
     completion_tokens = await count_tokens_async(total_response_content, data["model"])
@@ -282,12 +284,12 @@ async def _handle_real_stream_completions(
 async def send_streaming_completions_request(
     session: aiohttp.ClientSession,
     config: ArgoConfig,
-    data: Dict[str, Any],
+    data: dict[str, Any],
     request: web.Request,
     *,
     convert_to_openai: bool = False,
     openai_compat_fn: Union[
-        Callable[..., Dict[str, Any]], Callable[..., Awaitable[Dict[str, Any]]]
+        Callable[..., dict[str, Any]], Callable[..., Awaitable[dict[str, Any]]]
     ] = transform_completions_compat_async,
     pseudo_stream: bool = False,
 ) -> web.StreamResponse:
@@ -407,7 +409,7 @@ async def proxy_request(
     model_registry: ModelRegistry = request.app["model_registry"]
 
     try:
-        data: Dict[str, Any] = await request.json()
+        data: dict[str, Any] = await request.json()
         stream: bool = data.get("stream", DEFAULT_STREAM)
 
         if not data:

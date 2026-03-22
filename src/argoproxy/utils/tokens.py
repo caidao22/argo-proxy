@@ -1,5 +1,5 @@
 import asyncio
-from typing import List, Union
+from typing import Union
 
 import tiktoken
 
@@ -38,7 +38,7 @@ def extract_text_content(content: Union[str, list]) -> str:
     return ""
 
 
-def count_tokens(text: Union[str, List[str]], model: str) -> int:
+def count_tokens(text: Union[str, list[str]], model: str) -> int:
     """
     Calculate token count for a given text using tiktoken.
     If the model starts with 'argo:', the part after 'argo:' is used
@@ -54,7 +54,7 @@ def count_tokens(text: Union[str, List[str]], model: str) -> int:
     return len(encoding.encode(text or ""))
 
 
-async def count_tokens_async(text: Union[str, List[str]], model: str) -> int:
+async def count_tokens_async(text: Union[str, list[str]], model: str) -> int:
     """
     Asynchronously calculate token count for a given text using tiktoken.
     Runs the token counting in a thread pool to avoid blocking the event loop.

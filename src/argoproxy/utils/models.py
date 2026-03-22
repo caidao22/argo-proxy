@@ -1,6 +1,6 @@
 import secrets
 import string
-from typing import Any, Dict, Literal, Union
+from typing import Any, Literal, Union
 
 from pydantic import ValidationError
 
@@ -95,10 +95,10 @@ def generate_id(
 
 
 def apply_claude_max_tokens_limit(
-    data: Dict[str, Any],
+    data: dict[str, Any],
     *,
     is_non_streaming: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Apply max_tokens limit for Claude models when using non-streaming mode.
 
@@ -137,7 +137,7 @@ def apply_claude_max_tokens_limit(
     return data
 
 
-def validate_tool_choice(tool_choice: Union[str, Dict[str, Any]]) -> None:
+def validate_tool_choice(tool_choice: Union[str, dict[str, Any]]) -> None:
     """Helper function to validate tool_choice parameter.
 
     Args:

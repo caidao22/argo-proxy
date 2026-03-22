@@ -8,14 +8,11 @@ in the main codebase but are preserved for reference.
 import inspect
 import json
 from typing import (
-    AsyncIterator,
-    Iterator,
-    List,
-    Optional,
-    Tuple,
     Union,
+    cast,
     overload,
 )
+from collections.abc import AsyncIterator, Iterator
 
 
 class DeprecatedToolInterceptor:
@@ -40,9 +37,7 @@ class DeprecatedToolInterceptor:
 
         return False
 
-    def _process_chunk_logic(
-        self, chunk: str
-    ) -> List[Tuple[Optional[dict], Optional[str]]]:
+    def _process_chunk_logic(self, chunk: str) -> list[tuple[dict | None, str | None]]:
         """Core logic for processing a single chunk, returns list of (tool_call, text) tuples"""
         results = []
         self.buffer += chunk
@@ -103,7 +98,7 @@ class DeprecatedToolInterceptor:
 
         return results
 
-    def _finalize_processing(self) -> List[Tuple[Optional[dict], Optional[str]]]:
+    def _finalize_processing(self) -> list[tuple[dict | None, str | None]]:
         """Handle any remaining content after all chunks are processed"""
         results = []
         if self.in_tool_call:
@@ -119,18 +114,18 @@ class DeprecatedToolInterceptor:
     @overload
     def process_stream(
         self, chunk_iterator: Iterator[str]
-    ) -> Iterator[Tuple[Optional[dict], Optional[str]]]: ...
+    ) -> Iterator[tuple[dict | None, str | None]]: ...
 
     @overload
     def process_stream(
         self, chunk_iterator: AsyncIterator[str]
-    ) -> AsyncIterator[Tuple[Optional[dict], Optional[str]]]: ...
+    ) -> AsyncIterator[tuple[dict | None, str | None]]: ...
 
     def process_stream(
         self, chunk_iterator: Union[Iterator[str], AsyncIterator[str]]
     ) -> Union[
-        Iterator[Tuple[Optional[dict], Optional[str]]],
-        AsyncIterator[Tuple[Optional[dict], Optional[str]]],
+        Iterator[tuple[dict | None, str | None]],
+        AsyncIterator[tuple[dict | None, str | None]],
     ]:
         """
         Process chunks and yield tool calls or text as they complete.
@@ -150,13 +145,15 @@ class DeprecatedToolInterceptor:
 
         # Check if the iterator is async
         if hasattr(chunk_iterator, "__aiter__") or inspect.isasyncgen(chunk_iterator):
-            return self._process_async_iterator(chunk_iterator)
+            return self._process_async_iterator(
+                cast(AsyncIterator[str], chunk_iterator)
+            )
         else:
-            return self._process_sync_iterator(chunk_iterator)
+            return self._process_sync_iterator(cast(Iterator[str], chunk_iterator))
 
     def _process_sync_iterator(
         self, chunk_iterator: Iterator[str]
-    ) -> Iterator[Tuple[Optional[dict], Optional[str]]]:
+    ) -> Iterator[tuple[dict | None, str | None]]:
         """Process synchronous iterator"""
         for chunk in chunk_iterator:
             results = self._process_chunk_logic(chunk)
@@ -170,7 +167,7 @@ class DeprecatedToolInterceptor:
 
     async def _process_async_iterator(
         self, chunk_iterator: AsyncIterator[str]
-    ) -> AsyncIterator[Tuple[Optional[dict], Optional[str]]]:
+    ) -> AsyncIterator[tuple[dict | None, str | None]]:
         """Process asynchronous iterator"""
         async for chunk in chunk_iterator:
             results = self._process_chunk_logic(chunk)

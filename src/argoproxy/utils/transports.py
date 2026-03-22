@@ -1,13 +1,14 @@
 import asyncio
 import json
-from typing import Any, AsyncGenerator, Dict, Optional, Union
+from typing import Any, Union
+from collections.abc import AsyncGenerator
 
 import aiohttp
 from aiohttp import web
 
 
 async def pseudo_chunk_generator(
-    complete_text: Optional[str],
+    complete_text: str | None,
     chunk_size: int = 30,
     sleep_time: float = 0.01,
 ) -> AsyncGenerator[str, None]:
@@ -38,7 +39,7 @@ async def pseudo_chunk_generator(
 
 
 async def send_off_sse(
-    response: web.StreamResponse, data: Union[Dict[str, Any], bytes]
+    response: web.StreamResponse, data: Union[dict[str, Any], bytes]
 ) -> None:
     """
     Sends a chunk of data as a Server-Sent Events (SSE) event.
@@ -67,7 +68,7 @@ async def validate_api_async(
     payload: dict,
     timeout: int = 2,
     attempts: int = 3,
-    resolver_overrides: Optional[dict[str, str]] = None,
+    resolver_overrides: dict[str, str] | None = None,
 ) -> bool:
     """Asynchronously validates API connectivity with retries using aiohttp.
 
@@ -98,7 +99,7 @@ async def validate_api_async(
 
     client_timeout = aiohttp.ClientTimeout(total=timeout)
 
-    last_err: Optional[Exception] = None
+    last_err: Exception | None = None
     for attempt in range(attempts + 1):  # tries = 1 + attempts
         try:
             async with aiohttp.ClientSession(
@@ -134,7 +135,7 @@ async def validate_url_get_async(
     url: str,
     timeout: int = 5,
     attempts: int = 2,
-    resolver_overrides: Optional[dict[str, str]] = None,
+    resolver_overrides: dict[str, str] | None = None,
 ) -> bool:
     """Validate URL connectivity with a simple GET request.
 
@@ -161,7 +162,7 @@ async def validate_url_get_async(
 
     client_timeout = aiohttp.ClientTimeout(total=timeout)
 
-    last_err: Optional[Exception] = None
+    last_err: Exception | None = None
     for attempt in range(attempts + 1):
         try:
             async with aiohttp.ClientSession(

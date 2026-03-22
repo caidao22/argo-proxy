@@ -9,7 +9,7 @@ import copy
 import json
 import logging
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 # ANSI color codes for terminal output
@@ -100,8 +100,8 @@ class ColoredFormatter(logging.Formatter):
 
     def __init__(
         self,
-        fmt: Optional[str] = None,
-        datefmt: Optional[str] = None,
+        fmt: str | None = None,
+        datefmt: str | None = None,
         use_colors: bool = True,
     ):
         """
@@ -152,7 +152,7 @@ class ColoredFormatter(logging.Formatter):
 
 
 # Module-level state
-_handler: Optional[logging.Handler] = None
+_handler: logging.Handler | None = None
 
 # Create and configure the logger instance once at module load time
 # This avoids the overhead of calling get_logger() on every log call
@@ -206,7 +206,7 @@ def setup_logging(verbose: bool = False, use_colors: bool = True) -> logging.Log
 
     # Override formatTime to include milliseconds
     def format_time_with_millis(
-        record: logging.LogRecord, datefmt: Optional[str] = None
+        record: logging.LogRecord, datefmt: str | None = None
     ) -> str:
         import datetime
 
@@ -265,14 +265,14 @@ def truncate_base64(data_url: str, max_length: int = 100) -> str:
 
 
 def sanitize_request_data(
-    data: Dict[str, Any],
+    data: dict[str, Any],
     *,
     max_base64_length: int = 100,
     max_content_length: int = 500,
     max_tool_desc_length: int = 100,
     truncate_tools: bool = True,
     truncate_messages: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Sanitizes request data for logging by truncating long content.
 
@@ -339,7 +339,7 @@ def sanitize_request_data(
     return sanitized
 
 
-def create_request_summary(data: Dict[str, Any]) -> str:
+def create_request_summary(data: dict[str, Any]) -> str:
     """
     Creates a concise one-line summary of a request for logging.
 
@@ -381,7 +381,7 @@ def create_request_summary(data: Dict[str, Any]) -> str:
 
 
 def log_request(
-    data: Dict[str, Any],
+    data: dict[str, Any],
     label: str = "REQUEST",
     *,
     show_summary: bool = True,
@@ -422,7 +422,7 @@ def log_request(
 
 
 def log_original_request(
-    data: Dict[str, Any],
+    data: dict[str, Any],
     *,
     verbose: bool = False,
     max_content_length: int = 500,
@@ -445,7 +445,7 @@ def log_original_request(
 
 
 def log_converted_request(
-    data: Dict[str, Any],
+    data: dict[str, Any],
     *,
     verbose: bool = False,
     max_content_length: int = 500,
@@ -468,8 +468,8 @@ def log_converted_request(
 
 
 def log_request_diff(
-    original: Dict[str, Any],
-    converted: Dict[str, Any],
+    original: dict[str, Any],
+    converted: dict[str, Any],
     *,
     verbose: bool = False,
 ) -> None:
@@ -492,7 +492,7 @@ def log_request_diff(
     _logger.info(f"[CONVERTED] {converted_summary}")
 
     # Highlight key differences
-    diffs: List[str] = []
+    diffs: list[str] = []
 
     # Model change
     orig_model = original.get("model", "")

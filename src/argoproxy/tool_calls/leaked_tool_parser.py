@@ -15,7 +15,7 @@ Example of a leaked tool call in text:
 import ast
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from ..utils.logging import log_debug, log_warning
 
@@ -26,7 +26,7 @@ class LeakedToolCall:
 
     id: str
     name: str
-    input: Dict[str, Any]
+    input: dict[str, Any]
     type: str = "tool_use"
     raw_string: str = ""
     start_index: int = 0
@@ -66,7 +66,7 @@ class LeakedToolParser:
         return s
 
     @staticmethod
-    def _try_parse_candidate(candidate_str: str) -> Optional[Dict[str, Any]]:
+    def _try_parse_candidate(candidate_str: str) -> dict[str, Any] | None:
         """
         Try to parse a candidate string as a Python dict literal.
 
@@ -141,7 +141,7 @@ class LeakedToolParser:
 
     def extract_single_leaked_tool(
         self, text: str, start_idx: int
-    ) -> Optional[LeakedToolCall]:
+    ) -> LeakedToolCall | None:
         """
         Extract a single leaked tool call starting at the given index.
 
@@ -210,7 +210,7 @@ class LeakedToolParser:
         )
         return None
 
-    def extract_all_leaked_tools(self, text: str) -> Tuple[List[LeakedToolCall], str]:
+    def extract_all_leaked_tools(self, text: str) -> tuple[list[LeakedToolCall], str]:
         """
         Extract all leaked tool calls from text and return cleaned text.
 
@@ -225,7 +225,7 @@ class LeakedToolParser:
         Returns:
             Tuple of (list of LeakedToolCall objects, cleaned text content).
         """
-        leaked_tools: List[LeakedToolCall] = []
+        leaked_tools: list[LeakedToolCall] = []
         cleaned_text = text
 
         # Keep searching for leaked tools until none are found
@@ -264,7 +264,7 @@ class LeakedToolParser:
 
         return leaked_tools, cleaned_text
 
-    def to_anthropic_format(self, leaked_tool: LeakedToolCall) -> Dict[str, Any]:
+    def to_anthropic_format(self, leaked_tool: LeakedToolCall) -> dict[str, Any]:
         """
         Convert a LeakedToolCall to Anthropic tool_use format.
 
@@ -284,7 +284,7 @@ class LeakedToolParser:
 
 def parse_anthropic_content_array(
     raw_content: Any,
-) -> Tuple[str, List[Dict[str, Any]]]:
+) -> tuple[str, list[dict[str, Any]]]:
     """
     Parse Anthropic content which can be a string OR an array of content blocks.
 
@@ -306,8 +306,8 @@ def parse_anthropic_content_array(
     if not isinstance(raw_content, list):
         return str(raw_content) if raw_content else "", []
 
-    text_parts: List[str] = []
-    tool_use_blocks: List[Dict[str, Any]] = []
+    text_parts: list[str] = []
+    tool_use_blocks: list[dict[str, Any]] = []
 
     for block in raw_content:
         if isinstance(block, dict):
@@ -324,8 +324,8 @@ def parse_anthropic_content_array(
 
 def extract_leaked_tool_calls(
     text_content: str,
-    existing_tool_calls: Optional[List[Dict[str, Any]]] = None,
-) -> Tuple[List[Dict[str, Any]], str]:
+    existing_tool_calls: list[dict[str, Any]] | None = None,
+) -> tuple[list[dict[str, Any]], str]:
     """
     Extract leaked tool calls from text content.
 
