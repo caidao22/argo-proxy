@@ -20,7 +20,7 @@ from aiohttp import web
 from llm_rosetta import get_converter_for_provider
 from llm_rosetta.auto_detect import ProviderType
 from llm_rosetta.converters.base.stream_context import StreamContext
-from llm_rosetta.converters.openai_chat.tool_ops import _sanitize_schema
+from llm_rosetta.converters.base.tools import sanitize_schema
 
 from ..config import ArgoConfig
 from ..models import ModelRegistry
@@ -159,13 +159,13 @@ def _sanitize_tool_schemas(body: dict[str, Any]) -> dict[str, Any]:
         if isinstance(func, dict):
             params = func.get("parameters")
             if isinstance(params, dict):
-                func["parameters"] = _sanitize_schema(params)
+                func["parameters"] = sanitize_schema(params)
             continue
 
         # Anthropic format: tools[].input_schema
         schema = tool.get("input_schema")
         if isinstance(schema, dict):
-            tool["input_schema"] = _sanitize_schema(schema)
+            tool["input_schema"] = sanitize_schema(schema)
 
     return body
 
