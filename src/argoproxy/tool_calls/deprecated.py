@@ -20,7 +20,7 @@ from typing import (
 
 class DeprecatedToolInterceptor:
     """Deprecated streaming-based tool interceptor"""
-    
+
     def __init__(self):
         self.buffer = ""
         self.in_tool_call = False
@@ -32,12 +32,12 @@ class DeprecatedToolInterceptor:
         for i in range(1, min(len(text) + 1, 12)):  # '<tool_call>' is 11 chars
             if text.endswith("<tool_call>"[:i]):
                 return True
-        
+
         # Check for partial closing tag
         for i in range(1, min(len(text) + 1, 13)):  # '</tool_call>' is 12 chars
             if text.endswith("</tool_call>"[:i]):
                 return True
-        
+
         return False
 
     def _process_chunk_logic(

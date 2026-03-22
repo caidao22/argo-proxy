@@ -519,6 +519,34 @@ async def _convert_streaming(
                                 format_sse(source_chunks).encode("utf-8")
                             )
 
+            # ----------------------------------------------------------
+            # Fallback: ensure stream is properly terminated.
+            # If upstream never sent a final empty-choices chunk (e.g.
+            # it ignores stream_options.include_usage), the converter
+            # may not have emitted StreamEndEvent.  Synthesize the
+            # missing termination events so the client sees a valid
+            # end-of-stream sequence.
+            # ----------------------------------------------------------
+            if not from_ctx.is_ended:
+                from llm_rosetta.types.ir.stream import StreamEndEvent
+
+                log_debug(
+                    "Upstream stream ended without StreamEndEvent; "
+                    "synthesizing termination events",
+                    context="dispatch",
+                )
+                from_ctx.mark_ended()
+                end_event = StreamEndEvent(type="stream_end")
+                source_chunks = source_converter.stream_response_to_provider(
+                    end_event, context=to_ctx
+                )
+                if isinstance(source_chunks, list):
+                    for sc in source_chunks:
+                        if sc:
+                            await response.write(format_sse(sc).encode("utf-8"))
+                elif source_chunks:
+                    await response.write(format_sse(source_chunks).encode("utf-8"))
+
             # Emit end-of-stream marker for OpenAI Chat
             if source_provider == "openai_chat":
                 await response.write(b"data: [DONE]\n\n")

@@ -251,7 +251,9 @@ def handle_google_parallel_tool_calls(
 def handle_tools_native(
     data: Dict[str, Any],
     *,
-    input_format: Literal["openai-chatcompletion", "anthropic", "google"] = "openai-chatcompletion",
+    input_format: Literal[
+        "openai-chatcompletion", "anthropic", "google"
+    ] = "openai-chatcompletion",
 ) -> Dict[str, Any]:
     """Handles tool calls by converting them to the appropriate format for the target model.
 
@@ -308,7 +310,9 @@ def handle_tools_native(
         # Get tool call related parameters — only default to "auto" for
         # OpenAI-style input; for other formats use None to avoid injecting
         # a tool_choice the client never sent.
-        default_tool_choice = "auto" if input_format == "openai-chatcompletion" else None
+        default_tool_choice = (
+            "auto" if input_format == "openai-chatcompletion" else None
+        )
         tool_choice = data.get("tool_choice", default_tool_choice)
 
         # Remove parallel_tool_calls from data for now
@@ -320,9 +324,7 @@ def handle_tools_native(
             converted_tools = []
             for tool_dict in tools:
                 # Validate and convert each tool using Tool middleware
-                tool_obj = Tool.from_entry(
-                    tool_dict, api_format=input_format
-                )
+                tool_obj = Tool.from_entry(tool_dict, api_format=input_format)
 
                 if model_type == "openai":
                     # Keep OpenAI format
@@ -550,7 +552,9 @@ def handle_tools(
     data: Dict[str, Any],
     *,
     native_tools: bool = True,
-    input_format: Literal["openai-chatcompletion", "anthropic", "google"] = "openai-chatcompletion",
+    input_format: Literal[
+        "openai-chatcompletion", "anthropic", "google"
+    ] = "openai-chatcompletion",
 ) -> Dict[str, Any]:
     """
     Process input data containing tool calls with fallback strategy.

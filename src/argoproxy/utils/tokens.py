@@ -30,7 +30,7 @@ def extract_text_content(content: Union[str, list]) -> str:
             if isinstance(item, dict):
                 if "text" in item:
                     texts.append(item["text"])
-                elif "content" in item: # Handle tool_result and other nested content
+                elif "content" in item:  # Handle tool_result and other nested content
                     texts.append(extract_text_content(item["content"]))
             elif isinstance(item, str):
                 texts.append(item)
@@ -85,10 +85,11 @@ def calculate_prompt_tokens(data: dict, model: str) -> int:
         for msg in data["messages"]:
             if "content" in msg:
                 total_text.append(extract_text_content(msg["content"]))
-            
+
             # Handle tool_calls in assistant messages
             if "tool_calls" in msg and msg["tool_calls"]:
                 import json
+
                 total_text.append(json.dumps(msg["tool_calls"]))
 
     # Include prompt (legacy/completions)
@@ -98,6 +99,7 @@ def calculate_prompt_tokens(data: dict, model: str) -> int:
     # Include tool definitions
     if "tools" in data and data["tools"]:
         import json
+
         total_text.append(json.dumps(data["tools"]))
 
     return count_tokens(total_text, model)
