@@ -21,6 +21,7 @@ from llm_rosetta import get_converter_for_provider
 from llm_rosetta.auto_detect import ProviderType
 from llm_rosetta.converters.base.stream_context import StreamContext
 from llm_rosetta.converters.base.tools import sanitize_schema
+from llm_rosetta.converters.openai_chat.tool_ops import fix_orphaned_tool_calls
 
 from ..config import ArgoConfig
 from ..models import ModelRegistry
@@ -693,6 +694,16 @@ async def proxy_request(
             # Sanitize tool schemas even in passthrough mode — upstreams
             # like Vertex AI reject unsupported JSON Schema keywords.
             _sanitize_tool_schemas(body)
+
+            # Fix orphaned tool_calls in passthrough mode — OpenAI Chat
+            # API rejects requests where tool_call_ids lack matching
+            # role:tool responses (e.g. from interrupted tool executions).
+            # For cross-format conversion this is handled automatically
+            # by llm-rosetta's OpenAIChatConverter.request_to_provider().
+            if target_provider == "openai_chat":
+                messages = body.get("messages")
+                if messages and isinstance(messages, list):
+                    body["messages"] = fix_orphaned_tool_calls(messages)
 
             if stream:
                 return await _passthrough_streaming(
