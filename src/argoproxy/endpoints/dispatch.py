@@ -21,7 +21,12 @@ from llm_rosetta import get_converter_for_provider
 from llm_rosetta.auto_detect import ProviderType
 from llm_rosetta.converters.base.stream_context import StreamContext
 from llm_rosetta.converters.base.tools import sanitize_schema
-from llm_rosetta.converters.openai_chat.tool_ops import fix_orphaned_tool_calls
+from llm_rosetta.converters.openai_chat.tool_ops import (
+    fix_orphaned_tool_calls as fix_orphaned_tool_calls_chat,
+)
+from llm_rosetta.converters.openai_responses.tool_ops import (
+    fix_orphaned_tool_calls as fix_orphaned_tool_calls_responses,
+)
 
 from ..config import ArgoConfig
 from ..models import ModelRegistry
@@ -695,15 +700,20 @@ async def proxy_request(
             # like Vertex AI reject unsupported JSON Schema keywords.
             _sanitize_tool_schemas(body)
 
-            # Fix orphaned tool_calls in passthrough mode — OpenAI Chat
-            # API rejects requests where tool_call_ids lack matching
-            # role:tool responses (e.g. from interrupted tool executions).
-            # For cross-format conversion this is handled automatically
-            # by llm-rosetta's OpenAIChatConverter.request_to_provider().
+            # Fix orphaned tool_calls in passthrough mode — both OpenAI
+            # Chat and Responses APIs reject requests where tool_call_ids
+            # lack matching tool results (e.g. from interrupted tool
+            # executions).  For cross-format conversion this is handled
+            # automatically by llm-rosetta's converters at the IR level.
+            # See: https://llm-rosetta.readthedocs.io/en/latest/guide/converters/#orphaned-tool-calls
             if target_provider == "openai_chat":
                 messages = body.get("messages")
                 if messages and isinstance(messages, list):
-                    body["messages"] = fix_orphaned_tool_calls(messages)
+                    body["messages"] = fix_orphaned_tool_calls_chat(messages)
+            elif target_provider == "openai_responses":
+                input_items = body.get("input")
+                if input_items and isinstance(input_items, list):
+                    body["input"] = fix_orphaned_tool_calls_responses(input_items)
 
             if stream:
                 return await _passthrough_streaming(
